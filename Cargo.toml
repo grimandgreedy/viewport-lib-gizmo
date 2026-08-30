@@ -1,0 +1,17 @@
+[package]
+name = "viewport-lib-gizmo"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Standalone transform gizmo for viewport-lib scenes: renderer-free hit-testing, drag projection, snapping, and overlay building."
+license = "GPL-3.0-only"
+autoexamples = false
+
+[dependencies]
+glam = { version = "=0.30.10", features = ["bytemuck"] }
+viewport-lib-types = { path = "../viewport-lib/crates/viewport-lib-types" }
+
+[dev-dependencies]
+# The renderer is needed only by examples that draw the overlay items, not by
+# the library itself.
+viewport-lib = { path = "../viewport-lib/crates/viewport-lib" }
