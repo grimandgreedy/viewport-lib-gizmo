@@ -26,7 +26,7 @@
 //! gizmo for the screen ([`compute_gizmo_scale`]), resolve the pivot centre
 //! ([`gizmo_center_for_pivot`], [`PivotMode`]), hit-test the handles ([`Gizmo`]),
 //! turn a cursor into a world ray ([`cursor_ray`]), and snap a value
-//! ([`snap_value`] and friends). See `examples/custom_gizmo.rs`.
+//! ([`snap_value`] and friends).
 
 pub mod controller;
 pub mod maths;

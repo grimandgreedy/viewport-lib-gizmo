@@ -23,12 +23,6 @@ viewport-lib = { path = "../viewport-lib/crates/viewport-lib", features = [
 # eframe examples use (the wgpu 27 leg).
 eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts"] }
 
-# A layer-1 example: a custom gizmo built from the maths helpers alone, no
-# controller and no renderer.
-[[example]]
-name = "custom_gizmo"
-path = "examples/custom_gizmo.rs"
-
 # A gizmo drawn over one object, driven end to end with the ViewportApp runner.
 [[example]]
 name = "gizmo_basic"
