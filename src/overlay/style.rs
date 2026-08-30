@@ -143,16 +143,16 @@ impl Default for GizmoStyle {
     fn default() -> Self {
         Self {
             x: AxisColour {
-                base: [0.878, 0.322, 0.322, 1.0],
-                hover: [1.0, 0.518, 0.518, 1.0],
+                base: [0.75, 0.06, 0.07, 1.0],
+                hover: [0.975, 0.078, 0.091, 1.0],
             },
             y: AxisColour {
-                base: [0.361, 0.722, 0.361, 1.0],
-                hover: [0.469, 0.938, 0.469, 1.0],
+                base: [0.18, 0.55, 0.03, 1.0],
+                hover: [0.234, 0.715, 0.039, 1.0],
             },
             z: AxisColour {
-                base: [0.290, 0.620, 1.0, 1.0],
-                hover: [0.377, 0.806, 1.0, 1.0],
+                base: [0.05, 0.27, 0.72, 1.0],
+                hover: [0.065, 0.351, 0.936, 1.0],
             },
             screen: AxisColour {
                 base: [0.9, 0.9, 0.9, 0.6],
@@ -306,8 +306,8 @@ mod tests {
     #[test]
     fn default_axis_colours_match_the_standard_look() {
         let s = GizmoStyle::default();
-        assert_eq!(s.axis_colour(GizmoAxis::X, GizmoAxis::None), [0.878, 0.322, 0.322, 1.0]);
-        assert_eq!(s.axis_colour(GizmoAxis::X, GizmoAxis::X), [1.0, 0.518, 0.518, 1.0]);
+        assert_eq!(s.axis_colour(GizmoAxis::X, GizmoAxis::None), [0.75, 0.06, 0.07, 1.0]);
+        assert_eq!(s.axis_colour(GizmoAxis::X, GizmoAxis::X), [0.975, 0.078, 0.091, 1.0]);
         assert_eq!(s.axis_colour(GizmoAxis::Screen, GizmoAxis::None), [0.9, 0.9, 0.9, 0.6]);
     }
 
@@ -316,7 +316,7 @@ mod tests {
         let s = GizmoStyle::default();
         let base = s.plane_colour(GizmoAxis::XY, GizmoAxis::None);
         assert_eq!(base[3], 0.3);
-        assert!((base[0] - (0.878 + 0.361) * 0.5).abs() < 1e-6);
+        assert!((base[0] - (0.75 + 0.18) * 0.5).abs() < 1e-6);
         let hov = s.plane_colour(GizmoAxis::XY, GizmoAxis::XY);
         assert_eq!(hov[3], 0.5);
         assert!(hov[0] > base[0], "hover brightens the blend");
