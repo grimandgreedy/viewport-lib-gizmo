@@ -13,5 +13,28 @@ viewport-lib-types = { path = "../viewport-lib/crates/viewport-lib-types" }
 
 [dev-dependencies]
 # The renderer is needed only by examples that draw the overlay items, not by
-# the library itself.
-viewport-lib = { path = "../viewport-lib/crates/viewport-lib" }
+# the library itself. The `app` feature adds the `ViewportApp` fullscreen runner
+# used by the rendering examples.
+viewport-lib = { path = "../viewport-lib/crates/viewport-lib", features = [
+    "app",
+    "egui-adapter",
+] }
+# eframe drives the sidebar example. Pinned to the version viewport-lib's own
+# eframe examples use (the wgpu 27 leg).
+eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts"] }
+
+# A layer-1 example: a custom gizmo built from the maths helpers alone, no
+# controller and no renderer.
+[[example]]
+name = "custom_gizmo"
+path = "examples/custom_gizmo.rs"
+
+# A gizmo drawn over one object, driven end to end with the ViewportApp runner.
+[[example]]
+name = "gizmo_basic"
+path = "examples/gizmo_basic.rs"
+
+# An eframe app with a sidebar that switches the GizmoStyle at runtime.
+[[example]]
+name = "gizmo_style_sidebar"
+path = "examples/gizmo_style_sidebar.rs"
