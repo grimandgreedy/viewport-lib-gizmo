@@ -113,24 +113,22 @@ pub(crate) struct ManipulationSession {
     /// The per-frame delta passed to solvers is `(current - anchor) - cursor_last_total`.
     /// Reset to zero whenever `cursor_anchor` is updated.
     pub(crate) cursor_last_total: glam::Vec2,
-    /// The cumulative distance-ratio scale factor applied on the previous frame.
-    ///
-    /// Used in scale mode to convert the cumulative factor (current_dist / anchor_dist)
-    /// into a per-frame incremental factor.  Reset to 1.0 whenever `cursor_anchor` is updated.
-    pub(crate) last_scale_factor: f32,
-    /// Running sum of the unsnapped world translation applied since the session
-    /// (or last constraint change) began. Snapping rounds this cumulative value,
-    /// not the per-frame increment, so the object stays grid-locked without drift.
+    /// The cumulative distance-ratio scale factor (current_dist / anchor_dist)
+    /// since the session (or last constraint change) began. Reset to 1.0 whenever
+    /// `cursor_anchor` is updated. Emitted as the total [`TransformDelta::scale`].
+    pub(crate) cumulative_scale: f32,
+    /// Running sum of the world translation since the session (or last constraint
+    /// change) began. Snapping rounds this cumulative value, not a per-frame
+    /// increment, so the object stays grid-locked without drift. Emitted as the
+    /// total [`TransformDelta::translation`].
     pub(crate) cumulative_translation: glam::Vec3,
-    /// Running sum of the translation already emitted to the app. The per-frame
-    /// [`TransformDelta::translation`] is the difference between the (possibly
-    /// snapped) target cumulative and this.
-    pub(crate) emitted_translation: glam::Vec3,
-    /// Running sum of the unsnapped rotation angle (radians) about the constrained
-    /// axis. Only tracked for single-axis rotation, where angle snapping is meaningful.
+    /// Running sum of the rotation angle (radians) about the constrained axis,
+    /// since the session began. Only tracked for single-axis rotation, where angle
+    /// snapping is meaningful.
     pub(crate) cumulative_angle: f32,
-    /// Running sum of the rotation angle already emitted to the app.
-    pub(crate) emitted_angle: f32,
+    /// Accumulated rotation for the excluded-axis and unconstrained modes, which
+    /// have no single scalar angle. Emitted as the total [`TransformDelta::rotation`].
+    pub(crate) cumulative_rotation: glam::Quat,
 }
 
 impl Default for ManipulationSession {
@@ -144,11 +142,10 @@ impl Default for ManipulationSession {
             gizmo_center: glam::Vec3::ZERO,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
-            last_scale_factor: 1.0,
+            cumulative_scale: 1.0,
             cumulative_translation: glam::Vec3::ZERO,
-            emitted_translation: glam::Vec3::ZERO,
             cumulative_angle: 0.0,
-            emitted_angle: 0.0,
+            cumulative_rotation: glam::Quat::IDENTITY,
         }
     }
 }
@@ -354,7 +351,7 @@ mod tests {
             gizmo_center: glam::Vec3::ZERO,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
-            last_scale_factor: 1.0,
+            cumulative_scale: 1.0,
             ..Default::default()
         };
         update_constraint(&mut session, true, false, false, false, false, false);
@@ -373,7 +370,7 @@ mod tests {
             gizmo_center: glam::Vec3::ZERO,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
-            last_scale_factor: 1.0,
+            cumulative_scale: 1.0,
             ..Default::default()
         };
         update_constraint(&mut session, false, false, false, false, true, false);
@@ -392,7 +389,7 @@ mod tests {
             gizmo_center: glam::Vec3::ZERO,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
-            last_scale_factor: 1.0,
+            cumulative_scale: 1.0,
             ..Default::default()
         };
         update_constraint(&mut session, false, true, false, false, false, false);

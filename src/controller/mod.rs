@@ -22,10 +22,12 @@
 //! }
 //! ```
 
+pub mod driver;
 pub mod types;
 
 mod session;
 
+pub use driver::{FrameInput, GizmoDriver};
 pub use types::*;
 
 use crate::maths::gizmo::{Gizmo, GizmoAxis, GizmoMode, GizmoSpace};
@@ -126,13 +128,13 @@ impl ManipulationController {
             if session.axis != axis_before || session.exclude_axis != exclude_before {
                 session.cursor_anchor = ctx.cursor_viewport;
                 session.cursor_last_total = glam::Vec2::ZERO;
-                session.last_scale_factor = 1.0;
-                // The app restores its snapshot on this result, so the snap
+                session.cumulative_scale = 1.0;
+                // The app restores its snapshot on this result, so the cumulative
                 // accumulators must start fresh for the new constraint too.
                 session.cumulative_translation = glam::Vec3::ZERO;
-                session.emitted_translation = glam::Vec3::ZERO;
                 session.cumulative_angle = 0.0;
-                session.emitted_angle = 0.0;
+                session.cumulative_rotation = glam::Quat::IDENTITY;
+                session.cumulative_scale = 1.0;
                 return ManipResult::ConstraintChanged;
             }
 
@@ -170,20 +172,12 @@ impl ManipulationController {
                         ctx.viewport_size,
                     );
                     session.cumulative_translation += frame_translation;
+                    // Emit the total translation since the drag began. Snapping
+                    // rounds the cumulative (not a per-frame step) so the object
+                    // sits on grid stops without drift.
                     delta.translation = match snap.translation {
-                        Some(inc) if inc > 0.0 => {
-                            // Snap the movement-from-start, then emit the step needed
-                            // to reach it. Rounding the cumulative (not the frame delta)
-                            // keeps the object on grid stops without drift.
-                            let target = snap_vec3(session.cumulative_translation, inc);
-                            let step = target - session.emitted_translation;
-                            session.emitted_translation = target;
-                            step
-                        }
-                        _ => {
-                            session.emitted_translation += frame_translation;
-                            frame_translation
-                        }
+                        Some(inc) if inc > 0.0 => snap_vec3(session.cumulative_translation, inc),
+                        _ => session.cumulative_translation,
                     };
                     // Numeric position override.
                     if let Some(ref numeric) = session.numeric {
@@ -195,7 +189,10 @@ impl ManipulationController {
                     let twist = frame.navigation.twist;
                     let rot = if let Some(ax) = session.axis {
                         if session.exclude_axis {
-                            // Excluded axis: rotate around the dominant of the two remaining axes.
+                            // Excluded axis: rotate around the dominant of the two
+                            // remaining axes. The chosen axis can change between
+                            // frames, so accumulate the per-frame rotation into a
+                            // running total quaternion.
                             let (ax1, ax2) = solvers::excluded_axes(ax);
                             let a1 = solvers::drag_onto_rotation(pointer_delta, ax1, camera_view);
                             let a2 = solvers::drag_onto_rotation(pointer_delta, ax2, camera_view);
@@ -204,7 +201,10 @@ impl ManipulationController {
                             } else {
                                 (ax2, a2)
                             };
-                            glam::Quat::from_axis_angle(chosen_axis, drag_angle + twist)
+                            let frame_rot =
+                                glam::Quat::from_axis_angle(chosen_axis, drag_angle + twist);
+                            session.cumulative_rotation = frame_rot * session.cumulative_rotation;
+                            session.cumulative_rotation
                         } else {
                             // Constrained to a single axis: angular sweep around screen center.
                             let axis_world = solvers::gizmo_axis_to_vec3(ax);
@@ -218,26 +218,23 @@ impl ManipulationController {
                                 camera_view,
                             ) + twist;
                             session.cumulative_angle += angle;
-                            let step = match snap.rotation {
-                                Some(inc) if inc > 0.0 => {
-                                    // Snap the cumulative angle so rotation clicks
-                                    // between fixed steps (e.g. 15 deg).
-                                    let target = snap_value(session.cumulative_angle, inc);
-                                    let out = target - session.emitted_angle;
-                                    session.emitted_angle = target;
-                                    out
-                                }
-                                _ => {
-                                    session.emitted_angle += angle;
-                                    angle
-                                }
+                            // Emit the total rotation since the drag began. Snapping
+                            // rounds the cumulative angle so rotation clicks between
+                            // fixed steps (e.g. 15 deg).
+                            let total = match snap.rotation {
+                                Some(inc) if inc > 0.0 => snap_value(session.cumulative_angle, inc),
+                                _ => session.cumulative_angle,
                             };
-                            glam::Quat::from_axis_angle(axis_world, step)
+                            glam::Quat::from_axis_angle(axis_world, total)
                         }
                     } else {
-                        // Unconstrained: rotate around camera view direction.
+                        // Unconstrained: rotate around the camera view direction,
+                        // accumulating the per-frame rotation into a running total.
                         let view_dir = (ctx.camera.center - ctx.camera.eye_position()).normalize();
-                        glam::Quat::from_axis_angle(view_dir, pointer_delta.x * 0.01 + twist)
+                        let frame_rot =
+                            glam::Quat::from_axis_angle(view_dir, pointer_delta.x * 0.01 + twist);
+                        session.cumulative_rotation = frame_rot * session.cumulative_rotation;
+                        session.cumulative_rotation
                     };
                     delta.rotation = rot;
                     // Numeric rotation override (per-axis angle). The app interprets
@@ -270,30 +267,29 @@ impl ManipulationController {
                         }
                         _ => {
                             // Fallback when cursor is unavailable: integrate pointer_delta.
-                            (session.last_scale_factor
+                            (session.cumulative_scale
                                 * (1.0 + pointer_delta.x * 4.0 / ctx.viewport_size.x.max(1.0)))
                             .max(0.001)
                         }
                     };
 
-                    // Snap the cumulative factor (not the per-frame step) so scaling
-                    // clicks between stops, then convert to a per-frame incremental
-                    // factor the app keeps multiplying in as before.
-                    let target = match snap.scale {
+                    // Snap the cumulative factor (not a per-frame step) so scaling
+                    // clicks between stops, then emit the total factor since the
+                    // drag began.
+                    let total = match snap.scale {
                         Some(inc) if inc > 0.0 => snap_value(cumulative, inc).max(0.001),
                         _ => cumulative,
                     };
-                    let incr = (target / session.last_scale_factor).max(0.001);
-                    session.last_scale_factor = target;
+                    session.cumulative_scale = total;
 
                     delta.scale = match (session.axis, session.exclude_axis) {
-                        (None, _) => glam::Vec3::splat(incr),
-                        (Some(GizmoAxis::X), false) => glam::Vec3::new(incr, 1.0, 1.0),
-                        (Some(GizmoAxis::Y), false) => glam::Vec3::new(1.0, incr, 1.0),
-                        (Some(_), false) => glam::Vec3::new(1.0, 1.0, incr),
-                        (Some(GizmoAxis::X), true) => glam::Vec3::new(1.0, incr, incr),
-                        (Some(GizmoAxis::Y), true) => glam::Vec3::new(incr, 1.0, incr),
-                        (Some(_), true) => glam::Vec3::new(incr, incr, 1.0),
+                        (None, _) => glam::Vec3::splat(total),
+                        (Some(GizmoAxis::X), false) => glam::Vec3::new(total, 1.0, 1.0),
+                        (Some(GizmoAxis::Y), false) => glam::Vec3::new(1.0, total, 1.0),
+                        (Some(_), false) => glam::Vec3::new(1.0, 1.0, total),
+                        (Some(GizmoAxis::X), true) => glam::Vec3::new(1.0, total, total),
+                        (Some(GizmoAxis::Y), true) => glam::Vec3::new(total, 1.0, total),
+                        (Some(_), true) => glam::Vec3::new(total, total, 1.0),
                     };
 
                     // Numeric scale override.
@@ -313,13 +309,9 @@ impl ManipulationController {
             if let (Some(gizmo_info), Some(center), Some(cursor)) =
                 (&ctx.gizmo, ctx.selection_center, ctx.cursor_viewport)
             {
-                let camera_view = ctx.camera.view_matrix();
-                let view_proj = ctx.camera.proj_matrix() * camera_view;
-
                 // Build a ray from the cursor position.
-                let ray_origin = ctx.camera.eye_position();
-                let ray_dir =
-                    unproject_cursor_to_ray(cursor, &ctx.camera, view_proj, ctx.viewport_size);
+                let (ray_origin, ray_dir) =
+                    crate::maths::gizmo::cursor_ray(&ctx.camera, cursor, ctx.viewport_size);
 
                 let temp_gizmo = Gizmo {
                     mode: gizmo_info.mode,
@@ -354,7 +346,7 @@ impl ManipulationController {
                         gizmo_center: center,
                         cursor_anchor: ctx.cursor_viewport,
                         cursor_last_total: glam::Vec2::ZERO,
-                        last_scale_factor: 1.0,
+                        cumulative_scale: 1.0,
                         ..Default::default()
                     });
                     return ManipResult::None;
@@ -384,7 +376,7 @@ impl ManipulationController {
                     gizmo_center: center,
                     cursor_anchor: ctx.cursor_viewport,
                     cursor_last_total: glam::Vec2::ZERO,
-                    last_scale_factor: 1.0,
+                    cumulative_scale: 1.0,
                     ..Default::default()
                 });
                 return ManipResult::None;
@@ -425,7 +417,7 @@ impl ManipulationController {
             gizmo_center: center,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
-            last_scale_factor: 1.0,
+            cumulative_scale: 1.0,
             ..Default::default()
         });
     }
@@ -464,26 +456,6 @@ fn hit_to_constraint(hit: GizmoAxis) -> (Option<GizmoAxis>, bool) {
         GizmoAxis::YZ => (Some(GizmoAxis::X), true),
         GizmoAxis::Screen | GizmoAxis::None => (None, false),
     }
-}
-
-/// Compute a world-space ray direction from a viewport-local cursor position.
-fn unproject_cursor_to_ray(
-    cursor_viewport: glam::Vec2,
-    camera: &viewport_lib_types::camera::Camera,
-    view_proj: glam::Mat4,
-    viewport_size: glam::Vec2,
-) -> glam::Vec3 {
-    // Convert cursor from viewport pixels (Y-down) to NDC.
-    let ndc_x = (cursor_viewport.x / viewport_size.x.max(1.0)) * 2.0 - 1.0;
-    let ndc_y = 1.0 - (cursor_viewport.y / viewport_size.y.max(1.0)) * 2.0;
-
-    let inv_vp = view_proj.inverse();
-
-    let far_world = inv_vp.project_point3(glam::Vec3::new(ndc_x, ndc_y, 1.0));
-
-    // Use the camera eye position for accuracy (same as the gizmo hit-test origin).
-    let eye = camera.eye_position();
-    (far_world - eye).normalize_or(glam::Vec3::NEG_Z)
 }
 
 // ---------------------------------------------------------------------------
@@ -530,7 +502,7 @@ mod tests {
             gizmo_center: glam::Vec3::ZERO,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
-            last_scale_factor: 1.0,
+            cumulative_scale: 1.0,
             ..Default::default()
         };
 
@@ -804,6 +776,32 @@ mod tests {
             (emitted - raw).length() < 1e-4,
             "unsnapped emit {emitted:?} should equal raw solver {raw:?}"
         );
+    }
+
+    #[test]
+    fn move_emits_cumulative_total_across_frames() {
+        // The emitted translation is the total since the drag began, not a
+        // per-frame increment. Two identical frames therefore emit about twice
+        // the first frame.
+        let mut ctrl = ManipulationController::new();
+        ctrl.begin(ManipulationKind::Move, glam::Vec3::ZERO);
+        let pd = glam::Vec2::new(50.0, 0.0);
+        let mut emitted = [glam::Vec3::ZERO; 2];
+        for out in emitted.iter_mut() {
+            let mut ctx = idle_ctx();
+            ctx.pointer_delta = pd;
+            match ctrl.update(&ActionFrame::default(), ctx) {
+                ManipResult::Update(delta) => *out = delta.translation,
+                other => panic!("expected Update, got {other:?}"),
+            }
+        }
+        assert!(
+            (emitted[1] - emitted[0] * 2.0).length() < 1e-4,
+            "frame 2 {:?} should be twice frame 1 {:?}",
+            emitted[1],
+            emitted[0]
+        );
+        assert!(emitted[0].length() > 1e-4, "the drag should produce movement");
     }
 
     #[test]

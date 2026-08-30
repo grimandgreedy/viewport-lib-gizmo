@@ -13,7 +13,13 @@ pub enum ManipulationKind {
     Scale,
 }
 
-/// Solved per-frame transform increment. Zero/identity values mean "no change on this axis."
+/// The total transform since the drag began. Zero/identity values mean "no change".
+///
+/// This is cumulative, not a per-frame increment: each frame reports the whole
+/// change since the session started. Apply it to the object's drag-start snapshot
+/// around the drag-start pivot, and you get the object's current pose; recomputing
+/// from the snapshot each frame means no drift and a trivial cancel (restore the
+/// snapshot).
 ///
 /// The `*_override` arrays carry raw numeric input, one value per axis. They are
 /// interpretation-agnostic: the controller reports the typed numbers, and the app
@@ -22,11 +28,12 @@ pub enum ManipulationKind {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TransformDelta {
-    /// Add to object position.
+    /// Total translation since the drag began, added to the drag-start position.
     pub translation: glam::Vec3,
-    /// Multiply with current rotation (world-space).
+    /// Total rotation since the drag began (world-space), composed with the
+    /// drag-start rotation.
     pub rotation: glam::Quat,
-    /// Multiply componentwise with current scale.
+    /// Total scale since the drag began, multiplied with the drag-start scale.
     pub scale: glam::Vec3,
     /// Numeric input for each position axis. None = no override.
     pub position_override: [Option<f32>; 3],

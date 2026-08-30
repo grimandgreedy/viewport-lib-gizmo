@@ -460,6 +460,27 @@ pub fn compute_gizmo_scale(
     world_per_px * target_px
 }
 
+/// Turn a cursor position into a world-space ray from the camera eye.
+///
+/// Returns `(ray_origin, ray_dir)` with `ray_dir` normalised. `cursor_viewport`
+/// is in viewport pixels with a top-left origin (Y down). Feed the result to
+/// [`Gizmo::hit_test`] from a cursor, or use it to build a custom picker.
+pub fn cursor_ray(
+    camera: &viewport_lib_types::camera::Camera,
+    cursor_viewport: glam::Vec2,
+    viewport_size: glam::Vec2,
+) -> (glam::Vec3, glam::Vec3) {
+    let view_proj = camera.proj_matrix() * camera.view_matrix();
+    let ndc_x = (cursor_viewport.x / viewport_size.x.max(1.0)) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (cursor_viewport.y / viewport_size.y.max(1.0)) * 2.0;
+    let far_world = view_proj
+        .inverse()
+        .project_point3(glam::Vec3::new(ndc_x, ndc_y, 1.0));
+    let eye = camera.eye_position();
+    let dir = (far_world - eye).normalize_or(glam::Vec3::NEG_Z);
+    (eye, dir)
+}
+
 // ---------------------------------------------------------------------------
 // Drag math helpers
 // ---------------------------------------------------------------------------

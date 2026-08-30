@@ -16,11 +16,40 @@
 //!    constraints and snapping, for the common case.
 //!
 //! The world up axis is `+Z`, matching viewport-lib.
+//!
+//! # Build your own gizmo
+//!
+//! The [`maths`] items re-exported at the crate root are a committed surface for
+//! building a custom gizmo without the controller: project a screen drag onto an
+//! axis, plane, or rotation ([`project_drag_onto_axis`], [`project_drag_onto_plane`],
+//! [`project_drag_onto_rotation`], [`project_drag_onto_screen_plane`]), size the
+//! gizmo for the screen ([`compute_gizmo_scale`]), resolve the pivot centre
+//! ([`gizmo_center_for_pivot`], [`PivotMode`]), hit-test the handles ([`Gizmo`]),
+//! turn a cursor into a world ray ([`cursor_ray`]), and snap a value
+//! ([`snap_value`] and friends). See `examples/custom_gizmo.rs`.
 
 pub mod controller;
 pub mod maths;
 pub mod overlay;
 
+// Layer 1: the build-your-own-gizmo maths surface.
+pub use maths::gizmo::{
+    Gizmo, GizmoAxis, GizmoMode, GizmoSpace, PivotMode, ROTATION_RING_RADIUS, compute_gizmo_scale,
+    cursor_ray, gizmo_center_for_pivot, gizmo_center_from_selection, project_drag_onto_axis,
+    project_drag_onto_plane, project_drag_onto_rotation, project_drag_onto_screen_plane,
+};
+pub use maths::{NodeId, Selection};
 pub use maths::snap::{
     ConstraintOverlay, SnapConfig, snap_angle, snap_scale, snap_value, snap_vec3,
+};
+pub use maths::solvers::{angular_rotation_from_cursor, constrained_scale, constrained_translation};
+
+// Layer 2: style and overlay builder.
+pub use overlay::builder::build_gizmo_overlays;
+pub use overlay::style::{AxisColour, GizmoStyle, RotationHandles};
+
+// Layer 3: the controller and the per-frame driver.
+pub use controller::{
+    FrameInput, GizmoDriver, GizmoInfo, ManipResult, ManipulationContext, ManipulationController,
+    ManipulationKind, ManipulationState, TransformDelta,
 };
