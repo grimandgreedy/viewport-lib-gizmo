@@ -13,6 +13,39 @@ pub enum ManipulationKind {
     Scale,
 }
 
+/// Whether the gizmo's values are read relative to the start pose, or as absolute
+/// (objective) world values.
+///
+/// The gizmo only tracks and displays this; the app decides how to apply numeric
+/// input and drags accordingly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum ValueMode {
+    /// Values are offsets from the start pose (the default).
+    #[default]
+    Relative,
+    /// Values are absolute world coordinates.
+    Objective,
+}
+
+impl ValueMode {
+    /// The other mode.
+    pub fn toggled(self) -> Self {
+        match self {
+            ValueMode::Relative => ValueMode::Objective,
+            _ => ValueMode::Relative,
+        }
+    }
+
+    /// A short tag for the readout label (`"rel"` / `"obj"`).
+    pub fn tag(self) -> &'static str {
+        match self {
+            ValueMode::Relative => "rel",
+            ValueMode::Objective => "obj",
+        }
+    }
+}
+
 /// The total transform since the drag began. Zero/identity values mean "no change".
 ///
 /// This is cumulative, not a per-frame increment: each frame reports the whole

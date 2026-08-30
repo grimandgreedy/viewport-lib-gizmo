@@ -73,6 +73,7 @@ impl NumericInputState {
     /// Format a HUD-friendly display string, e.g. "X: 2.50 Y: _ Z: _".
     pub(crate) fn display_string(&self) -> String {
         let labels = ["X", "Y", "Z"];
+        let current = self.current_axis();
         let mut parts = Vec::new();
         for (i, label) in labels.iter().enumerate() {
             if self.active_axes.contains(&i) {
@@ -81,7 +82,9 @@ impl NumericInputState {
                 } else {
                     self.axis_inputs[i].clone()
                 };
-                parts.push(format!("{label}: {val}"));
+                // Mark the field currently accepting input.
+                let marker = if i == current { "*" } else { "" };
+                parts.push(format!("{marker}{label}: {val}"));
             }
         }
         parts.join("  ")

@@ -4,7 +4,8 @@
 //! rendering into an offscreen texture that egui displays), and adds a right
 //! sidebar: preset buttons (default / thin / bold) and per-axis colour pickers
 //! that edit the [`GizmoStyle`]. Drag a handle to move the cube; drag the
-//! background to orbit; press Q (or the sidebar buttons) to cycle the gizmo mode.
+//! background to orbit; press Q (or the sidebar buttons) to cycle the gizmo mode,
+//! and backtick (`) to toggle relative / objective values.
 //!
 //! Run with `cargo run --example gizmo_styling`.
 
@@ -121,9 +122,12 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let rs = frame.wgpu_render_state().expect("wgpu backend required");
 
-        // Q cycles the gizmo mode: translate -> rotate -> scale.
+        // Q cycles the gizmo mode; backtick toggles relative / objective values.
         if ctx.input(|i| i.key_pressed(egui::Key::Q)) {
             self.driver.cycle_mode();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Backtick)) {
+            self.driver.toggle_value_mode();
         }
 
         egui::SidePanel::right("style_panel")
@@ -141,6 +145,12 @@ impl eframe::App for App {
                     }
                     if ui.button("Scale").clicked() {
                         self.driver.set_mode(GizmoMode::Scale);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label(format!("Values: {:?}", self.driver.value_mode()));
+                    if ui.button("Toggle rel/obj").clicked() {
+                        self.driver.toggle_value_mode();
                     }
                 });
                 ui.separator();

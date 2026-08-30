@@ -4,7 +4,8 @@
 //! renderer only). Each frame it drives a [`GizmoDriver`], applies the returned
 //! delta to the object, and draws the handles with the default [`GizmoStyle`].
 //! Drag a handle to move the object; navigation orbits when no handle is grabbed.
-//! Press Tab or Q to cycle the gizmo mode (translate / rotate / scale).
+//! Press Tab or Q to cycle the gizmo mode (translate / rotate / scale), and
+//! backtick (`) to toggle relative / objective values.
 //!
 //! Run with `cargo run --example gizmo_basic`.
 
@@ -102,16 +103,21 @@ fn main() {
             });
             let grabbing = state.borrow().grabbing;
             for ev in ictx.events().to_vec() {
-                // Tab or Q cycles the gizmo mode: translate -> rotate -> scale.
-                // cycle_mode is ignored while a session is active, so during a G/R/S
-                // session Tab still advances the numeric axis instead.
+                // Tab or Q cycles the gizmo mode (translate -> rotate -> scale);
+                // backtick toggles relative / objective values. cycle_mode is
+                // ignored while a session is active, so during a G/R/S session Tab
+                // still advances the numeric axis instead.
                 if let ViewportEvent::Key {
-                    key: KeyCode::Tab | KeyCode::Q,
+                    key,
                     state: ButtonState::Pressed,
                     repeat: false,
                 } = ev
                 {
-                    state.borrow_mut().driver.cycle_mode();
+                    match key {
+                        KeyCode::Tab | KeyCode::Q => state.borrow_mut().driver.cycle_mode(),
+                        KeyCode::Backtick => state.borrow_mut().driver.toggle_value_mode(),
+                        _ => {}
+                    }
                 }
                 ictx.forward(ev.clone());
                 if !grabbing {

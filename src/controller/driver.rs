@@ -20,7 +20,7 @@ use viewport_lib_types::input::ActionFrame;
 
 use super::ManipulationController;
 use super::types::{
-    GizmoInfo, ManipResult, ManipulationContext, ManipulationKind, ManipulationState,
+    GizmoInfo, ManipResult, ManipulationContext, ManipulationKind, ManipulationState, ValueMode,
 };
 use crate::maths::gizmo::{self, Gizmo, GizmoAxis, GizmoMode, GizmoSpace};
 use crate::maths::snap::SnapConfig;
@@ -60,6 +60,7 @@ pub struct GizmoDriver {
     gizmo: Gizmo,
     gizmo_center: Option<Vec3>,
     gizmo_scale: f32,
+    value_mode: ValueMode,
 }
 
 impl Default for GizmoDriver {
@@ -76,7 +77,25 @@ impl GizmoDriver {
             gizmo: Gizmo::new(),
             gizmo_center: None,
             gizmo_scale: 1.0,
+            value_mode: ValueMode::Relative,
         }
+    }
+
+    /// Whether values are read relative to the start pose or as absolute
+    /// (objective) world values. The gizmo tracks and displays this; the app
+    /// applies it.
+    pub fn value_mode(&self) -> ValueMode {
+        self.value_mode
+    }
+
+    /// Set the [`ValueMode`].
+    pub fn set_value_mode(&mut self, mode: ValueMode) {
+        self.value_mode = mode;
+    }
+
+    /// Flip between relative and objective.
+    pub fn toggle_value_mode(&mut self) {
+        self.value_mode = self.value_mode.toggled();
     }
 
     /// Set the snap increments used while dragging. See
@@ -163,10 +182,11 @@ impl GizmoDriver {
         self.controller.state().and_then(|s| s.numeric_display)
     }
 
-    /// The readout to show while a session is active: the mode name, plus the
-    /// typed values once the user starts entering them. For example `"Scale:"`
-    /// on entering scale mode, then `"Scale:  X: 22  Y: 2"` while typing. `None`
-    /// when no session is active. Feed it to
+    /// The readout to show while a session is active: the mode, the constraint
+    /// axis, and the value mode, plus the typed values once the user starts
+    /// entering them. For example `"Translate X [rel]"` while dragging the X arm,
+    /// or `"Scale XY [rel]:  *X: 22  Y: 2"` while typing (the `*` marks the field
+    /// taking input). `None` when no session is active. Feed it to
     /// [`build_numeric_label`](crate::overlay::builder::build_numeric_label) or
     /// render it yourself.
     pub fn readout(&self) -> Option<String> {
@@ -176,9 +196,16 @@ impl GizmoDriver {
             ManipulationKind::Rotate => "Rotate",
             ManipulationKind::Scale => "Scale",
         };
+        let mut header = mode.to_string();
+        let axis = constraint_label(state.axis, state.exclude_axis);
+        if !axis.is_empty() {
+            header.push(' ');
+            header.push_str(axis);
+        }
+        header.push_str(&format!(" [{}]", self.value_mode.tag()));
         Some(match state.numeric_display {
-            Some(values) => format!("{mode}:  {values}"),
-            None => format!("{mode}:"),
+            Some(values) => format!("{header}:  {values}"),
+            None => header,
         })
     }
 
@@ -251,6 +278,20 @@ impl GizmoDriver {
         }
 
         result
+    }
+}
+
+/// A short label for the active constraint: a single axis (`"X"`), the plane of
+/// the two non-excluded axes (`"XY"`), or `""` for a free (unconstrained) drag.
+fn constraint_label(axis: Option<GizmoAxis>, exclude: bool) -> &'static str {
+    match (axis, exclude) {
+        (Some(GizmoAxis::X), false) => "X",
+        (Some(GizmoAxis::Y), false) => "Y",
+        (Some(GizmoAxis::Z), false) => "Z",
+        (Some(GizmoAxis::X), true) => "YZ",
+        (Some(GizmoAxis::Y), true) => "XZ",
+        (Some(GizmoAxis::Z), true) => "XY",
+        _ => "",
     }
 }
 
