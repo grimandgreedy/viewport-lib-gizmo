@@ -20,11 +20,13 @@ use vpl::{
 
 use viewport_lib_gizmo::{
     AxisColour, FrameInput, GizmoAxis, GizmoDriver, GizmoMode, GizmoStyle, ManipResult,
-    TransformDelta, build_gizmo_overlays, build_numeric_label,
+    TransformDelta, ValueMode, build_gizmo_overlays, build_numeric_label,
 };
 
-/// Compose a transform delta around a world pivot onto a base transform.
-fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4) -> Mat4 {
+/// Compose a transform delta around a world pivot onto a base transform. Numeric
+/// overrides are applied relative to the start pose or as absolute world values,
+/// per `values`.
+fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4, values: ValueMode) -> Mat4 {
     let rot = Mat4::from_quat(delta.rotation);
     let scale = Mat4::from_scale(Vec3::new(
         delta.scale_override[0].unwrap_or(delta.scale.x),
@@ -35,9 +37,13 @@ fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4) -> Mat4 {
     let to_pivot = Mat4::from_translation(-pivot);
     let from_pivot = Mat4::from_translation(pivot);
     let mut m = translate * from_pivot * rot * scale * to_pivot * base;
+    let base_pos = base.col(3);
     for (i, ov) in delta.position_override.iter().enumerate() {
         if let Some(v) = ov {
-            m.col_mut(3)[i] = *v;
+            m.col_mut(3)[i] = match values {
+                ValueMode::Objective => *v,
+                _ => base_pos[i] + *v,
+            };
         }
     }
     m
@@ -260,7 +266,8 @@ impl eframe::App for App {
                 match result {
                     ManipResult::Update(delta) => {
                         let pivot = self.base.col(3).truncate();
-                        self.current = apply_delta(&delta, pivot, self.base);
+                        let values = self.driver.value_mode();
+                        self.current = apply_delta(&delta, pivot, self.base, values);
                         self.session
                             .scene_mut()
                             .set_local_transform(self.node, self.current);

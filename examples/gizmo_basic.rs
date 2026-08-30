@@ -20,8 +20,8 @@ use vpl::{
 };
 
 use viewport_lib_gizmo::{
-    FrameInput, GizmoDriver, GizmoStyle, ManipResult, TransformDelta, build_gizmo_overlays,
-    build_numeric_label,
+    FrameInput, GizmoDriver, GizmoStyle, ManipResult, TransformDelta, ValueMode,
+    build_gizmo_overlays, build_numeric_label,
 };
 
 /// Shared gizmo state, written in the run callback and read by the input handler.
@@ -37,8 +37,10 @@ struct State {
     grabbing: bool,
 }
 
-/// Compose a transform delta around a world pivot onto a base transform.
-fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4) -> Mat4 {
+/// Compose a transform delta around a world pivot onto a base transform. Numeric
+/// overrides are applied relative to the start pose or as absolute world values,
+/// per `values`.
+fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4, values: ValueMode) -> Mat4 {
     let rot = Mat4::from_quat(delta.rotation);
     let scale = Mat4::from_scale(Vec3::new(
         delta.scale_override[0].unwrap_or(delta.scale.x),
@@ -49,9 +51,13 @@ fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4) -> Mat4 {
     let to_pivot = Mat4::from_translation(-pivot);
     let from_pivot = Mat4::from_translation(pivot);
     let mut m = translate * from_pivot * rot * scale * to_pivot * base;
+    let base_pos = base.col(3);
     for (i, ov) in delta.position_override.iter().enumerate() {
         if let Some(v) = ov {
-            m.col_mut(3)[i] = *v;
+            m.col_mut(3)[i] = match values {
+                ValueMode::Objective => *v,          // absolute world coordinate
+                _ => base_pos[i] + *v,               // relative: offset from start
+            };
         }
     }
     m
@@ -161,7 +167,8 @@ fn main() {
                     // always composes onto the drag-start snapshot around the
                     // drag-start pivot.
                     let pivot = s.base.col(3).truncate();
-                    s.current = apply_delta(&delta, pivot, s.base);
+                    let values = s.driver.value_mode();
+                    s.current = apply_delta(&delta, pivot, s.base, values);
                     ctx.scene_mut().set_local_transform(node, s.current);
                 }
                 ManipResult::Commit => {
