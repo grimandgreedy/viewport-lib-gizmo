@@ -1,13 +1,12 @@
-//! A transform gizmo in an eframe app, with a sidebar that switches the
-//! [`GizmoStyle`] at runtime.
+//! A transform gizmo in an eframe app, with a sidebar that restyles it live.
 //!
 //! Mirrors viewport-lib's `eframe_minimal` embedding (a `ViewportInstance`
 //! rendering into an offscreen texture that egui displays), and adds a right
-//! sidebar to pick the style. Drag a handle to move the cube; drag the background
-//! to orbit. The point of the example is the style switch: default / thin / bold
-//! redraw the same gizmo in a different look.
+//! sidebar: preset buttons (default / thin / bold) and per-axis colour pickers
+//! that edit the [`GizmoStyle`]. Drag a handle to move the cube; drag the
+//! background to orbit.
 //!
-//! Run with `cargo run --example gizmo_style_sidebar`.
+//! Run with `cargo run --example gizmo_styling`.
 
 use eframe::{egui, wgpu};
 use glam::{Mat4, Quat, Vec2, Vec3};
@@ -19,26 +18,9 @@ use vpl::{
 };
 
 use viewport_lib_gizmo::{
-    FrameInput, GizmoAxis, GizmoDriver, GizmoStyle, ManipResult, TransformDelta, build_gizmo_overlays,
+    AxisColour, FrameInput, GizmoAxis, GizmoDriver, GizmoStyle, ManipResult, TransformDelta,
+    build_gizmo_overlays,
 };
-
-/// The style the sidebar selects.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum StyleChoice {
-    Default,
-    Thin,
-    Bold,
-}
-
-impl StyleChoice {
-    fn to_style(self) -> GizmoStyle {
-        match self {
-            StyleChoice::Default => GizmoStyle::default(),
-            StyleChoice::Thin => GizmoStyle::thin(),
-            StyleChoice::Bold => GizmoStyle::bold(),
-        }
-    }
-}
 
 /// Compose a transform delta around a world pivot onto a base transform.
 fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4) -> Mat4 {
@@ -56,9 +38,27 @@ fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4) -> Mat4 {
     m
 }
 
+/// A colour picker for one axis: edits the base colour and derives the hover
+/// colour from it.
+fn axis_colour_picker(ui: &mut egui::Ui, label: &str, col: &mut AxisColour) {
+    let mut rgb = [col.base[0], col.base[1], col.base[2]];
+    ui.horizontal(|ui| {
+        ui.label(label);
+        if ui.color_edit_button_rgb(&mut rgb).changed() {
+            col.base = [rgb[0], rgb[1], rgb[2], col.base[3]];
+            col.hover = [
+                (rgb[0] * 1.3).min(1.0),
+                (rgb[1] * 1.3).min(1.0),
+                (rgb[2] * 1.3).min(1.0),
+                col.base[3],
+            ];
+        }
+    });
+}
+
 fn main() -> eframe::Result {
     eframe::run_native(
-        "viewport-lib-gizmo : style sidebar",
+        "viewport-lib-gizmo : styling",
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 720.0]),
             ..Default::default()
@@ -87,7 +87,7 @@ fn main() -> eframe::Result {
                 base: Mat4::IDENTITY,
                 current: Mat4::IDENTITY,
                 driver: GizmoDriver::new(),
-                style: StyleChoice::Default,
+                style: GizmoStyle::default(),
                 target: None,
             }))
         }),
@@ -109,7 +109,7 @@ struct App {
     base: Mat4,
     current: Mat4,
     driver: GizmoDriver,
-    style: StyleChoice,
+    style: GizmoStyle,
     target: Option<Target>,
 }
 
@@ -122,9 +122,23 @@ impl eframe::App for App {
             .show(ctx, |ui| {
                 ui.heading("Gizmo style");
                 ui.separator();
-                ui.radio_value(&mut self.style, StyleChoice::Default, "Default");
-                ui.radio_value(&mut self.style, StyleChoice::Thin, "Thin (CAD)");
-                ui.radio_value(&mut self.style, StyleChoice::Bold, "Bold (DCC)");
+                ui.label("Presets");
+                ui.horizontal(|ui| {
+                    if ui.button("Default").clicked() {
+                        self.style = GizmoStyle::default();
+                    }
+                    if ui.button("Thin").clicked() {
+                        self.style = GizmoStyle::thin();
+                    }
+                    if ui.button("Bold").clicked() {
+                        self.style = GizmoStyle::bold();
+                    }
+                });
+                ui.separator();
+                ui.label("Axis colours");
+                axis_colour_picker(ui, "X", &mut self.style.x);
+                axis_colour_picker(ui, "Y", &mut self.style.y);
+                axis_colour_picker(ui, "Z", &mut self.style.z);
                 ui.separator();
                 ui.label("Drag a handle to move the cube.");
                 ui.label("Drag the background to orbit.");
@@ -172,11 +186,12 @@ impl eframe::App for App {
                     });
                 }
 
-                self.session.begin_frame(ViewportContext {
+                let vp_ctx = ViewportContext {
                     hovered: response.hovered(),
                     focused: response.has_focus(),
                     viewport_size: [rect.width(), rect.height()],
-                });
+                };
+                self.session.begin_frame(vp_ctx);
                 self.session.set_pixels_per_point(ppp);
                 let origin = Vec2::new(rect.left(), rect.top());
                 ui.input(|i| {
@@ -212,9 +227,6 @@ impl eframe::App for App {
                 });
                 match result {
                     ManipResult::Update(delta) => {
-                        // The delta is the total transform since the drag began, so
-                        // it always composes onto the drag-start snapshot around the
-                        // drag-start pivot.
                         let pivot = self.base.col(3).truncate();
                         self.current = apply_delta(&delta, pivot, self.base);
                         self.session
@@ -236,14 +248,19 @@ impl eframe::App for App {
                     _ => {}
                 }
 
-                // Orbit only when a handle is not grabbed.
+                // Assemble the frame every tick (this rebuilds the scene sub-frame
+                // and clears the overlay list). Orbit only when a handle is not
+                // grabbed; while grabbing, assemble without moving the camera.
                 let grabbing =
                     self.driver.is_active() || self.driver.hovered_axis() != GizmoAxis::None;
-                if !grabbing {
+                if grabbing {
+                    self.session.frame(vp_ctx);
+                } else {
                     self.session.update_orbit(&mut self.orbit);
                 }
 
-                // Draw the gizmo in the selected style.
+                // Draw the gizmo in the current style, after assembly so it is not
+                // cleared.
                 if let Some(gizmo_center) = self.driver.gizmo_center() {
                     let scale = self.driver.gizmo_scale();
                     let view_proj = camera.proj_matrix() * camera.view_matrix();
@@ -251,10 +268,9 @@ impl eframe::App for App {
                         (camera.center - camera.eye_position()).normalize_or(Vec3::NEG_Z);
                     let mode = self.driver.gizmo().mode;
                     let hovered = self.driver.hovered_axis();
-                    let style = self.style.to_style();
                     let fd = self.session.frame_data_mut();
                     build_gizmo_overlays(
-                        &style,
+                        &self.style,
                         mode,
                         view_proj,
                         forward,

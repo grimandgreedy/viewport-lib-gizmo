@@ -34,7 +34,7 @@ path = "examples/custom_gizmo.rs"
 name = "gizmo_basic"
 path = "examples/gizmo_basic.rs"
 
-# An eframe app with a sidebar that switches the GizmoStyle at runtime.
+# An eframe app whose sidebar restyles the gizmo live.
 [[example]]
-name = "gizmo_style_sidebar"
-path = "examples/gizmo_style_sidebar.rs"
+name = "gizmo_styling"
+path = "examples/gizmo_styling.rs"
