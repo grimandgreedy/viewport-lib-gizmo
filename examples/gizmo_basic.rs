@@ -20,6 +20,7 @@ use vpl::{
 
 use viewport_lib_gizmo::{
     FrameInput, GizmoDriver, GizmoStyle, ManipResult, TransformDelta, build_gizmo_overlays,
+    build_numeric_label,
 };
 
 /// Shared gizmo state, written in the run callback and read by the input handler.
@@ -38,7 +39,11 @@ struct State {
 /// Compose a transform delta around a world pivot onto a base transform.
 fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4) -> Mat4 {
     let rot = Mat4::from_quat(delta.rotation);
-    let scale = Mat4::from_scale(delta.scale);
+    let scale = Mat4::from_scale(Vec3::new(
+        delta.scale_override[0].unwrap_or(delta.scale.x),
+        delta.scale_override[1].unwrap_or(delta.scale.y),
+        delta.scale_override[2].unwrap_or(delta.scale.z),
+    ));
     let translate = Mat4::from_translation(delta.translation);
     let to_pivot = Mat4::from_translation(-pivot);
     let from_pivot = Mat4::from_translation(pivot);
@@ -196,6 +201,12 @@ fn main() {
                     &mut overlays.shapes,
                     &mut overlays.polylines,
                 );
+                // Numeric readout (e.g. while typing "S 22 Tab 2").
+                if let Some(text) = s.driver.readout() {
+                    overlays
+                        .labels
+                        .push(build_numeric_label(&style, &text, gizmo_center));
+                }
             }
         }
     });

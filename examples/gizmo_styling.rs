@@ -19,13 +19,17 @@ use vpl::{
 
 use viewport_lib_gizmo::{
     AxisColour, FrameInput, GizmoAxis, GizmoDriver, GizmoMode, GizmoStyle, ManipResult,
-    TransformDelta, build_gizmo_overlays,
+    TransformDelta, build_gizmo_overlays, build_numeric_label,
 };
 
 /// Compose a transform delta around a world pivot onto a base transform.
 fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4) -> Mat4 {
     let rot = Mat4::from_quat(delta.rotation);
-    let scale = Mat4::from_scale(delta.scale);
+    let scale = Mat4::from_scale(Vec3::new(
+        delta.scale_override[0].unwrap_or(delta.scale.x),
+        delta.scale_override[1].unwrap_or(delta.scale.y),
+        delta.scale_override[2].unwrap_or(delta.scale.z),
+    ));
     let translate = Mat4::from_translation(delta.translation);
     let to_pivot = Mat4::from_translation(-pivot);
     let from_pivot = Mat4::from_translation(pivot);
@@ -286,6 +290,7 @@ impl eframe::App for App {
                         (camera.center - camera.eye_position()).normalize_or(Vec3::NEG_Z);
                     let mode = self.driver.gizmo().mode;
                     let hovered = self.driver.hovered_axis();
+                    let numeric = self.driver.readout();
                     let fd = self.session.frame_data_mut();
                     build_gizmo_overlays(
                         &self.style,
@@ -300,6 +305,12 @@ impl eframe::App for App {
                         &mut fd.overlays.shapes,
                         &mut fd.overlays.polylines,
                     );
+                    // Numeric readout (e.g. while typing "S 22 Tab 2").
+                    if let Some(text) = numeric {
+                        fd.overlays
+                            .labels
+                            .push(build_numeric_label(&self.style, &text, gizmo_center));
+                    }
                 }
 
                 let target = self.target.as_ref().unwrap();

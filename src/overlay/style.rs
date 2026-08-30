@@ -12,6 +12,7 @@
 //! fields in a custom style changes only what is drawn, not what is picked.
 
 use crate::maths::gizmo::{self, GizmoAxis};
+use viewport_lib_types::overlay::{AnchorX, AnchorY, OverlayAnchor};
 
 /// Base and hover colours for one axis (RGBA, alpha significant).
 #[derive(Clone, Copy, Debug)]
@@ -117,6 +118,25 @@ pub struct GizmoStyle {
     /// Base added to every gizmo overlay z-order. Raise it to draw the gizmo over
     /// other overlays, lower it to draw the gizmo under them.
     pub z_base: i32,
+
+    /// Where the numeric readout sits (see
+    /// [`build_numeric_label`](super::builder::build_numeric_label)).
+    /// `OverlayAnchor::World(_)` follows the gizmo centre (the placeholder
+    /// position is replaced with the live centre at build time);
+    /// `OverlayAnchor::Viewport { .. }` pins it to a screen edge or corner.
+    pub label_anchor: OverlayAnchor,
+    /// Horizontal alignment of the readout box relative to its anchor.
+    pub label_align_x: AnchorX,
+    /// Vertical alignment of the readout box relative to its anchor.
+    pub label_align_y: AnchorY,
+    /// Readout offset from its anchor, in pixels, applied after alignment.
+    pub label_offset: [f32; 2],
+    /// Numeric-readout font size.
+    pub label_size: f32,
+    /// Numeric-readout colour.
+    pub label_colour: [f32; 4],
+    /// Draw a background behind the numeric readout for legibility.
+    pub label_background: bool,
 }
 
 impl Default for GizmoStyle {
@@ -176,6 +196,19 @@ impl Default for GizmoStyle {
             screen_stroke_width: 1.0,
 
             z_base: 0,
+
+            // Bottom-centre of the viewport by default, lifted off the edge. Set
+            // a World anchor instead to float the readout at the gizmo.
+            label_anchor: OverlayAnchor::Viewport {
+                x: AnchorX::Middle,
+                y: AnchorY::Bottom,
+            },
+            label_align_x: AnchorX::Middle,
+            label_align_y: AnchorY::Bottom,
+            label_offset: [0.0, -24.0],
+            label_size: 18.0,
+            label_colour: [0.95, 0.95, 0.95, 1.0],
+            label_background: true,
         }
     }
 }

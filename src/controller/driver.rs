@@ -19,7 +19,9 @@ use viewport_lib_types::camera::Camera;
 use viewport_lib_types::input::ActionFrame;
 
 use super::ManipulationController;
-use super::types::{GizmoInfo, ManipResult, ManipulationContext};
+use super::types::{
+    GizmoInfo, ManipResult, ManipulationContext, ManipulationKind, ManipulationState,
+};
 use crate::maths::gizmo::{self, Gizmo, GizmoAxis, GizmoMode, GizmoSpace};
 use crate::maths::snap::SnapConfig;
 
@@ -148,6 +150,38 @@ impl GizmoDriver {
         &self.gizmo
     }
 
+    /// The controller's manipulation state, or `None` when idle. Carries the
+    /// active kind, axis constraint, and numeric-input display string.
+    pub fn state(&self) -> Option<ManipulationState> {
+        self.controller.state()
+    }
+
+    /// The numeric-input string being typed this session (for example
+    /// `"X: 22  Y: 2"`), or `None` when there is no numeric input. This is the
+    /// raw values only; see [`readout`](Self::readout) for the mode-prefixed form.
+    pub fn numeric_display(&self) -> Option<String> {
+        self.controller.state().and_then(|s| s.numeric_display)
+    }
+
+    /// The readout to show while a session is active: the mode name, plus the
+    /// typed values once the user starts entering them. For example `"Scale:"`
+    /// on entering scale mode, then `"Scale:  X: 22  Y: 2"` while typing. `None`
+    /// when no session is active. Feed it to
+    /// [`build_numeric_label`](crate::overlay::builder::build_numeric_label) or
+    /// render it yourself.
+    pub fn readout(&self) -> Option<String> {
+        let state = self.controller.state()?;
+        let mode = match state.kind {
+            ManipulationKind::Move => "Translate",
+            ManipulationKind::Rotate => "Rotate",
+            ManipulationKind::Scale => "Scale",
+        };
+        Some(match state.numeric_display {
+            Some(values) => format!("{mode}:  {values}"),
+            None => format!("{mode}:"),
+        })
+    }
+
     /// A [`GizmoInfo`] snapshot of the current centre, scale, and mode.
     pub fn gizmo_info(&self) -> Option<GizmoInfo> {
         self.gizmo_center.map(|center| GizmoInfo {
@@ -204,7 +238,19 @@ impl GizmoDriver {
             clicked: input.clicked,
         };
 
-        self.controller.update(input.action_frame, ctx)
+        let result = self.controller.update(input.action_frame, ctx);
+
+        // While a session is active, draw the handles for what is being done: a
+        // keyboard G/R/S session (or a gizmo drag) sets the mode the overlay uses.
+        if let Some(state) = self.controller.state() {
+            self.gizmo.mode = match state.kind {
+                ManipulationKind::Move => GizmoMode::Translate,
+                ManipulationKind::Rotate => GizmoMode::Rotate,
+                ManipulationKind::Scale => GizmoMode::Scale,
+            };
+        }
+
+        result
     }
 }
 

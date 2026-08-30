@@ -45,8 +45,10 @@ pub use maths::snap::{
 pub use maths::solvers::{angular_rotation_from_cursor, constrained_scale, constrained_translation};
 
 // Layer 2: style and overlay builder.
-pub use overlay::builder::build_gizmo_overlays;
+pub use overlay::builder::{build_gizmo_overlays, build_numeric_label};
 pub use overlay::style::{AxisColour, GizmoStyle, RotationHandles};
+// The label-placement vocabulary the style uses, re-exported for convenience.
+pub use viewport_lib_types::overlay::{AnchorX, AnchorY, OverlayAnchor};
 
 // Layer 3: the controller and the per-frame driver.
 pub use controller::{
