@@ -4,6 +4,7 @@
 //! renderer only). Each frame it drives a [`GizmoDriver`], applies the returned
 //! delta to the object, and draws the handles with the default [`GizmoStyle`].
 //! Drag a handle to move the object; navigation orbits when no handle is grabbed.
+//! Press Tab or Q to cycle the gizmo mode (translate / rotate / scale).
 //!
 //! Run with `cargo run --example gizmo_basic`.
 
@@ -13,7 +14,8 @@ use std::rc::Rc;
 use glam::{Mat4, Vec2, Vec3};
 use viewport_lib as vpl;
 use vpl::{
-    AppConfig, Material, NodeId, OrbitCameraController, ViewportApp, ViewportContext, primitives,
+    AppConfig, ButtonState, KeyCode, Material, NodeId, OrbitCameraController, ViewportApp,
+    ViewportContext, ViewportEvent, primitives,
 };
 
 use viewport_lib_gizmo::{
@@ -95,6 +97,17 @@ fn main() {
             });
             let grabbing = state.borrow().grabbing;
             for ev in ictx.events().to_vec() {
+                // Tab or Q cycles the gizmo mode: translate -> rotate -> scale.
+                // cycle_mode is ignored while a session is active, so during a G/R/S
+                // session Tab still advances the numeric axis instead.
+                if let ViewportEvent::Key {
+                    key: KeyCode::Tab | KeyCode::Q,
+                    state: ButtonState::Pressed,
+                    repeat: false,
+                } = ev
+                {
+                    state.borrow_mut().driver.cycle_mode();
+                }
                 ictx.forward(ev.clone());
                 if !grabbing {
                     orbit.push_event(ev);

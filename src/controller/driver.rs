@@ -101,6 +101,17 @@ impl GizmoDriver {
         }
     }
 
+    /// Cycle the gizmo mode: translate -> rotate -> scale -> translate. Ignored
+    /// while a session is active.
+    pub fn cycle_mode(&mut self) {
+        let next = match self.gizmo.mode {
+            GizmoMode::Translate => GizmoMode::Rotate,
+            GizmoMode::Rotate => GizmoMode::Scale,
+            _ => GizmoMode::Translate,
+        };
+        self.set_mode(next);
+    }
+
     /// The current gizmo space (world / local).
     pub fn space(&self) -> GizmoSpace {
         self.gizmo.space
@@ -287,5 +298,17 @@ mod tests {
         assert_eq!(d.mode(), GizmoMode::Translate);
         d.set_mode(GizmoMode::Rotate);
         assert_eq!(d.mode(), GizmoMode::Rotate);
+    }
+
+    #[test]
+    fn cycle_mode_advances_through_the_three_modes() {
+        let mut d = GizmoDriver::new();
+        assert_eq!(d.mode(), GizmoMode::Translate);
+        d.cycle_mode();
+        assert_eq!(d.mode(), GizmoMode::Rotate);
+        d.cycle_mode();
+        assert_eq!(d.mode(), GizmoMode::Scale);
+        d.cycle_mode();
+        assert_eq!(d.mode(), GizmoMode::Translate);
     }
 }

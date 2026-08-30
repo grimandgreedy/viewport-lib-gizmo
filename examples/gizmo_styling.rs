@@ -4,7 +4,7 @@
 //! rendering into an offscreen texture that egui displays), and adds a right
 //! sidebar: preset buttons (default / thin / bold) and per-axis colour pickers
 //! that edit the [`GizmoStyle`]. Drag a handle to move the cube; drag the
-//! background to orbit.
+//! background to orbit; press Q (or the sidebar buttons) to cycle the gizmo mode.
 //!
 //! Run with `cargo run --example gizmo_styling`.
 
@@ -18,8 +18,8 @@ use vpl::{
 };
 
 use viewport_lib_gizmo::{
-    AxisColour, FrameInput, GizmoAxis, GizmoDriver, GizmoStyle, ManipResult, TransformDelta,
-    build_gizmo_overlays,
+    AxisColour, FrameInput, GizmoAxis, GizmoDriver, GizmoMode, GizmoStyle, ManipResult,
+    TransformDelta, build_gizmo_overlays,
 };
 
 /// Compose a transform delta around a world pivot onto a base transform.
@@ -117,10 +117,28 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let rs = frame.wgpu_render_state().expect("wgpu backend required");
 
+        // Q cycles the gizmo mode: translate -> rotate -> scale.
+        if ctx.input(|i| i.key_pressed(egui::Key::Q)) {
+            self.driver.cycle_mode();
+        }
+
         egui::SidePanel::right("style_panel")
             .resizable(false)
             .show(ctx, |ui| {
                 ui.heading("Gizmo style");
+                ui.separator();
+                ui.label(format!("Mode: {:?}  (press Q to cycle)", self.driver.mode()));
+                ui.horizontal(|ui| {
+                    if ui.button("Move").clicked() {
+                        self.driver.set_mode(GizmoMode::Translate);
+                    }
+                    if ui.button("Rotate").clicked() {
+                        self.driver.set_mode(GizmoMode::Rotate);
+                    }
+                    if ui.button("Scale").clicked() {
+                        self.driver.set_mode(GizmoMode::Scale);
+                    }
+                });
                 ui.separator();
                 ui.label("Presets");
                 ui.horizontal(|ui| {
