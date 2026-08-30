@@ -10,3 +10,5 @@ pub mod snap;
 pub mod solvers;
 
 mod selection;
+
+pub use selection::{NodeId, Selection};
