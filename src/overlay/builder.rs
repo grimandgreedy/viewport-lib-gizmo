@@ -279,7 +279,7 @@ fn push_quad(
     out.polylines.push(
         OverlayPolylineItem::new(pts)
             .with_closed(true)
-            .with_fill(OverlayFill::Solid(fill))
+            .with_fill(OverlayFill::Solid(fill.into()))
             .with_colour(stroke)
             .with_thickness(thickness)
             .with_z_order(z),
@@ -336,8 +336,8 @@ fn build_arrow(
             )
             .with_rotation(shaft_draw.y.atan2(shaft_draw.x))
             .with_fill(OverlayFill::LinearGradient {
-                start_colour: scale_rgb(colour, style.shaft_grad_hi),
-                end_colour: scale_rgb(colour, style.shaft_grad_lo),
+                start_colour: scale_rgb(colour, style.shaft_grad_hi).into(),
+                end_colour: scale_rgb(colour, style.shaft_grad_lo).into(),
                 angle: 0.0,
             })
             .with_z_order(z),
@@ -360,8 +360,8 @@ fn build_arrow(
             centred(OverlayShape::Ellipse, shaft_tip_px, [minor, head_w])
                 .with_rotation(along)
                 .with_fill(OverlayFill::RadialGradient {
-                    centre_colour: scale_rgb(colour, style.cone_base_grad_hi),
-                    edge_colour: scale_rgb(colour, style.cone_base_grad_lo),
+                    centre_colour: scale_rgb(colour, style.cone_base_grad_hi).into(),
+                    edge_colour: scale_rgb(colour, style.cone_base_grad_lo).into(),
                 })
                 .with_z_order(z + 1),
         );
@@ -377,8 +377,8 @@ fn build_arrow(
                 )
                 .with_rotation(head_vec.x.atan2(-head_vec.y))
                 .with_fill(OverlayFill::LinearGradient {
-                    start_colour: scale_rgb(colour, style.cone_side_grad_hi),
-                    end_colour: scale_rgb(colour, style.cone_side_grad_lo),
+                    start_colour: scale_rgb(colour, style.cone_side_grad_hi).into(),
+                    end_colour: scale_rgb(colour, style.cone_side_grad_lo).into(),
                     angle: 0.0,
                 })
                 .with_z_order(z + 2),
