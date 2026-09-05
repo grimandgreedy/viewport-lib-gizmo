@@ -91,11 +91,12 @@ pub enum GizmoResult {
     ConstraintChanged,
 }
 
-/// The camera and selection the host supplies for a frame.
+/// The camera, selection, and resolved input the host supplies for a frame.
 struct FrameState {
     camera: Camera,
     selection_center: Option<Vec3>,
     space_orientation: Quat,
+    action_frame: ActionFrame,
 }
 
 impl Default for FrameState {
@@ -104,6 +105,7 @@ impl Default for FrameState {
             camera: Camera::default(),
             selection_center: None,
             space_orientation: Quat::IDENTITY,
+            action_frame: ActionFrame::default(),
         }
     }
 }
@@ -153,13 +155,22 @@ impl GizmoTool {
         self.show_readout.set(show);
     }
 
-    /// Set this frame's camera and selection pivot. Call once per frame before the
-    /// toolkit's `update`. `selection_center` is the world-space gizmo centre;
-    /// `None` hides the gizmo.
-    pub fn set_frame(&self, camera: Camera, selection_center: Option<Vec3>) {
+    /// Set this frame's camera, selection pivot, and resolved input. Call once per
+    /// frame before the toolkit's `update`. `selection_center` is the world-space
+    /// gizmo centre (`None` hides the gizmo). `action_frame` is the host's resolved
+    /// input for the frame; it carries the keyboard g/r/s, confirm/cancel, axis
+    /// constraints, and numeric entry the controller acts on. Pass
+    /// [`ActionFrame::default`] if the host does not resolve one.
+    pub fn set_frame(
+        &self,
+        camera: Camera,
+        selection_center: Option<Vec3>,
+        action_frame: ActionFrame,
+    ) {
         let mut frame = self.frame.borrow_mut();
         frame.camera = camera;
         frame.selection_center = selection_center;
+        frame.action_frame = action_frame;
     }
 
     /// Set the orientation the handles are drawn and picked in: identity for world
@@ -270,9 +281,13 @@ impl CustomWidget for GizmoTool {
     }
 
     fn input(&self, _ctx: &CustomCtx, rect: Rect, input: &Input) -> CustomInput {
-        let (camera, centre) = {
+        let (camera, centre, action_frame) = {
             let frame = self.frame.borrow();
-            (frame.camera.clone(), frame.selection_center)
+            (
+                frame.camera.clone(),
+                frame.selection_center,
+                frame.action_frame.clone(),
+            )
         };
 
         let viewport = Vec2::new(rect.width(), rect.height());
@@ -284,9 +299,9 @@ impl CustomWidget for GizmoTool {
         };
         self.last_cursor.set(Some(cursor_abs));
 
-        // Keyboard g/r/s is handled host-side for now, so the action frame is empty
-        // and the drag is driven purely by the pointer.
-        let action_frame = ActionFrame::default();
+        // The host's resolved action frame carries keyboard g/r/s and numeric entry;
+        // the pointer flags below drive the gizmo drag. The controller reads each from
+        // its own source, so they compose.
         let result = self.driver.borrow_mut().update(FrameInput {
             action_frame: &action_frame,
             camera: &camera,
@@ -410,7 +425,7 @@ mod tests {
     #[test]
     fn painting_with_a_selection_emits_draw_commands() {
         let tool = GizmoTool::new();
-        tool.set_frame(camera(), Some(Vec3::ZERO));
+        tool.set_frame(camera(), Some(Vec3::ZERO), ActionFrame::default());
         let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
         let mut list = DrawList::new();
         tool.paint(&ctx(&params, &src, &data), &Style::default(), full_rect(), &mut list);
@@ -430,7 +445,7 @@ mod tests {
     fn hovering_a_handle_captures_the_pointer() {
         let tool = GizmoTool::new();
         let cam = camera();
-        tool.set_frame(cam.clone(), Some(Vec3::ZERO));
+        tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
         let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
 
         // Cursor over empty space does not capture.
@@ -447,7 +462,7 @@ mod tests {
     fn dragging_a_handle_reports_a_typed_update() {
         let tool = GizmoTool::new();
         let cam = camera();
-        tool.set_frame(cam.clone(), Some(Vec3::ZERO));
+        tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
         let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
         let start = x_handle_cursor(&cam);
 

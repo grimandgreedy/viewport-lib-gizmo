@@ -9,8 +9,9 @@
 //!
 //! The 3D maths, the camera, and the controller stay in the gizmo crate; the tool
 //! only bridges them to the toolkit. Drag a handle to move the cube; drag empty
-//! space to orbit; a click on the panel neither orbits nor moves the cube. Tab or
-//! Q cycles the mode, backtick toggles relative / objective, H hides the readout.
+//! space to orbit; a click on the panel neither orbits nor moves the cube. Press
+//! G, R, or S to start a keyboard move / rotate / scale session; Tab or Q cycles
+//! the gizmo mode, backtick toggles relative / objective, H hides the readout.
 //!
 //! Run with `cargo run --example gizmo_ui --features ui`.
 
@@ -22,8 +23,8 @@ use std::sync::Arc;
 use glam::{Mat4, Quat, Vec3};
 use viewport_lib as vpl;
 use vpl::{
-    AppConfig, ButtonState, KeyCode, Material, NodeId, OrbitCameraController, ViewportApp,
-    ViewportContext, ViewportEvent, primitives,
+    AppConfig, ButtonState, KeyCode, Material, MouseButton, NodeId, OrbitCameraController,
+    ViewportApp, ViewportContext, ViewportEvent, primitives,
 };
 
 use viewport_lib_ui::{
@@ -184,8 +185,16 @@ fn main() {
             });
 
             let grabbing = app.borrow().grabbing;
-            let events = ictx.events().to_vec();
-            for ev in &events {
+            let raw = ictx.events().to_vec();
+
+            // Input router. The host owns the camera; vpl-ui owns the panels and the
+            // gizmo. The wheel is always the camera's zoom (nothing in this UI scrolls),
+            // so it goes straight to the camera and is withheld from vpl-ui, whose coarse
+            // pointer capture would otherwise swallow it while a handle is hovered.
+            // Pointer and key events go to vpl-ui; the camera's orbit and pan get them
+            // only when vpl-ui did not capture the pointer last frame.
+            let mut ui_events = Vec::with_capacity(raw.len());
+            for ev in &raw {
                 if let ViewportEvent::Key {
                     key,
                     state: ButtonState::Pressed,
@@ -208,13 +217,34 @@ fn main() {
                     }
                 }
                 ictx.forward(ev.clone());
-                if !grabbing {
+
+                // The only thing the gizmo (or a panel) consumes is the left-button
+                // drag, so that is the only thing withheld from the camera while the UI
+                // holds the pointer. The wheel, modifier changes, and other buttons
+                // always reach the camera, so zoom, cmd+scroll orbit, and shift+scroll
+                // pan keep working even with the cursor over a handle.
+                let left_drag = matches!(
+                    ev,
+                    ViewportEvent::MouseButton { button: MouseButton::Left, .. }
+                        | ViewportEvent::PointerMoved { .. }
+                );
+                if !(grabbing && left_drag) {
                     orbit.push_event(ev.clone());
+                }
+
+                // vpl-ui sees pointer, buttons, keys, and modifier changes so its panels
+                // hover and click and the gizmo drag runs. The wheel is the camera's
+                // alone in this app (nothing in the UI scrolls).
+                if !matches!(ev, ViewportEvent::Wheel { .. }) {
+                    ui_events.push(ev.clone());
                 }
             }
             orbit.apply_to_camera(ictx.camera_mut());
             let camera = ictx.camera_mut().clone();
-            let input = translator.frame(&events);
+            // Resolve this frame's input now that every event has been forwarded, so
+            // the gizmo sees the keyboard g/r/s, confirm/cancel, and numeric entry.
+            let action = ictx.resolve().clone();
+            let input = translator.frame(&ui_events);
             let measure = ShapedTextMeasurer::new(ictx.resources(), no_fonts);
 
             let mut a = app.borrow_mut();
@@ -232,7 +262,7 @@ fn main() {
             } = &mut *a;
 
             let centre = current.col(3).truncate();
-            tool.set_frame(camera, Some(centre));
+            tool.set_frame(camera, Some(centre), action);
             // Keep the pane covering the viewport as the window resizes.
             if let Some(w) = screen.root.find_mut(GIZMO_PANE) {
                 w.size = vp_px;
