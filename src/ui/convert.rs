@@ -80,8 +80,24 @@ pub fn push_gizmo_overlays(
 }
 
 /// A `viewport-lib-types` colour as the toolkit's `[r, g, b, a]`.
+///
+/// The gizmo's overlay colours are linear (viewport-lib takes bare arrays as linear
+/// and the renderer encodes them on write). The toolkit's `DrawCommand` colours are
+/// sRGB display values that its lowering decodes back to linear. So encode to sRGB
+/// here, and the round trip lands on the same linear colour the direct overlay path
+/// submits, keeping this frontend's colours identical to the renderer-direct one.
 fn arr(colour: OverlayColour) -> Colour {
-    colour.into()
+    let [r, g, b, a]: [f32; 4] = colour.into();
+    [linear_to_srgb(r), linear_to_srgb(g), linear_to_srgb(b), a]
+}
+
+/// Encode one linear channel to sRGB. Alpha is left alone.
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.003_130_8 {
+        12.92 * c
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
 }
 
 fn gradient_stop(t: f32, colour: OverlayColour) -> DrawStop {
@@ -197,13 +213,20 @@ fn line_cap(cap: PolylineCap) -> LineCap {
 mod tests {
     use super::*;
 
+    /// Colours compare with a tolerance: the sRGB encode is not bit-exact even for
+    /// 1.0 (it rounds to 0.99999994).
+    fn close(a: [f32; 4], b: [f32; 4]) -> bool {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3)
+    }
+
     #[test]
     fn capsule_shaft_becomes_a_rotated_gradient_shape_at_its_depth() {
         let item = OverlayShapeItem::new(OverlayShape::Capsule, [10.0, 20.0], [40.0, 6.0])
             .with_rotation(std::f32::consts::FRAC_PI_2)
             .with_fill(OverlayFill::LinearGradient {
+                // 0.0 and 1.0 are invariant under the sRGB encode, so the assert stays exact.
                 start_colour: [1.0, 0.0, 0.0, 1.0].into(),
-                end_colour: [0.5, 0.0, 0.0, 1.0].into(),
+                end_colour: [0.0, 0.0, 0.0, 1.0].into(),
                 angle: 0.0,
             })
             .with_z_order(1234);
@@ -226,8 +249,8 @@ mod tests {
                 match fill {
                     DrawFill::LinearGradient { stops, angle_deg } => {
                         assert_eq!(stops.len(), 2);
-                        assert_eq!(stops[0].colour, [1.0, 0.0, 0.0, 1.0]);
-                        assert_eq!(stops[1].colour, [0.5, 0.0, 0.0, 1.0]);
+                        assert!(close(stops[0].colour, [1.0, 0.0, 0.0, 1.0]));
+                        assert!(close(stops[1].colour, [0.0, 0.0, 0.0, 1.0]));
                         assert_eq!(angle_deg, 0.0);
                     }
                     other => panic!("expected a linear gradient, got {other:?}"),
@@ -241,8 +264,8 @@ mod tests {
     fn ellipse_cone_base_keeps_its_radial_gradient() {
         let item = OverlayShapeItem::new(OverlayShape::Ellipse, [0.0, 0.0], [12.0, 20.0])
             .with_fill(OverlayFill::RadialGradient {
-                centre_colour: [0.2, 0.8, 0.5, 1.0].into(),
-                edge_colour: [0.1, 0.4, 0.25, 1.0].into(),
+                centre_colour: [1.0, 1.0, 1.0, 1.0].into(),
+                edge_colour: [0.0, 0.0, 0.0, 1.0].into(),
             });
 
         let (command, _) = shape_command(&item);
@@ -253,8 +276,8 @@ mod tests {
                 ..
             } => {
                 assert_eq!(stops.len(), 2);
-                assert_eq!(stops[0].colour, [0.2, 0.8, 0.5, 1.0]);
-                assert_eq!(stops[1].colour, [0.1, 0.4, 0.25, 1.0]);
+                assert!(close(stops[0].colour, [1.0, 1.0, 1.0, 1.0]));
+                assert!(close(stops[1].colour, [0.0, 0.0, 0.0, 1.0]));
             }
             other => panic!("expected an ellipse with a radial gradient, got {other:?}"),
         }
@@ -284,8 +307,8 @@ mod tests {
     fn closed_solid_polyline_becomes_a_filled_polyline_at_its_depth() {
         let item = OverlayPolylineItem::new(vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]])
             .with_closed(true)
-            .with_fill(OverlayFill::Solid([0.2, 0.4, 0.6, 1.0].into()))
-            .with_colour([0.9, 0.9, 0.9, 1.0])
+            .with_fill(OverlayFill::Solid([1.0, 0.0, 0.0, 1.0].into()))
+            .with_colour([1.0, 1.0, 1.0, 1.0])
             .with_thickness(2.0)
             .with_z_order(42);
 
@@ -302,9 +325,9 @@ mod tests {
             } => {
                 assert_eq!(points.len(), 3);
                 assert_eq!(width, 2.0);
-                assert_eq!(colour, [0.9, 0.9, 0.9, 1.0], "the stroke colour");
+                assert!(close(colour, [1.0, 1.0, 1.0, 1.0]), "the stroke colour");
                 assert!(closed);
-                assert_eq!(fill, Some([0.2, 0.4, 0.6, 1.0]), "the solid interior");
+                assert!(fill.is_some_and(|f| close(f, [1.0, 0.0, 0.0, 1.0])), "the solid interior");
             }
             other => panic!("expected a polyline, got {other:?}"),
         }
@@ -319,6 +342,25 @@ mod tests {
                 assert_eq!(fill, None);
             }
             other => panic!("expected a polyline, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn linear_colours_are_encoded_to_srgb() {
+        // A mid grey the gizmo submits as linear must reach the toolkit as its sRGB
+        // value, so the facade's decode lands back on the original linear colour.
+        let item = OverlayShapeItem::new(OverlayShape::Ellipse, [0.0, 0.0], [4.0, 4.0])
+            .with_fill(OverlayFill::Solid([0.5, 0.5, 0.5, 0.5].into()));
+        match shape_command(&item).0 {
+            DrawCommand::Shape {
+                fill: DrawFill::Solid([r, g, b, a]),
+                ..
+            } => {
+                assert!((r - 0.735).abs() < 0.01, "0.5 linear encodes to ~0.735 sRGB, got {r}");
+                assert_eq!([g, b], [r, r], "channels encode identically");
+                assert_eq!(a, 0.5, "alpha is not encoded");
+            }
+            other => panic!("expected a solid shape, got {other:?}"),
         }
     }
 

@@ -115,6 +115,7 @@ pub struct GizmoTool {
     frame: RefCell<FrameState>,
     style: RefCell<GizmoStyle>,
     last_cursor: Cell<Option<Vec2>>,
+    show_readout: Cell<bool>,
 }
 
 impl Default for GizmoTool {
@@ -136,7 +137,20 @@ impl GizmoTool {
             frame: RefCell::new(FrameState::default()),
             style: RefCell::new(style),
             last_cursor: Cell::new(None),
+            show_readout: Cell::new(true),
         }
+    }
+
+    /// Whether the numeric readout panel should be shown. Defaults to `true`. The
+    /// host reads this to toggle the visibility of the panel built by
+    /// [`readout_panel`](super::readout::readout_panel).
+    pub fn show_readout(&self) -> bool {
+        self.show_readout.get()
+    }
+
+    /// Set whether the readout panel is shown.
+    pub fn set_show_readout(&self, show: bool) {
+        self.show_readout.set(show);
     }
 
     /// Set this frame's camera and selection pivot. Call once per frame before the

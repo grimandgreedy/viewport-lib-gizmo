@@ -11,12 +11,25 @@
 //! [`set_value_mode`](super::widget::GizmoTool::set_value_mode).
 
 use glam::{EulerRot, Quat};
-use viewport_lib_ui_document::{Widget, WidgetId, WidgetKind};
+use viewport_lib_ui_document::{
+    Align, Axis, Decoration, EdgeInsets, Layout, Metric, Paint, Style, Widget, WidgetId,
+    WidgetKind, roles,
+};
 
 use crate::controller::ValueMode;
 use crate::maths::gizmo::GizmoMode;
 
 use super::widget::GizmoDelta;
+
+/// Default inner padding of the readout panel, in logical pixels.
+pub const READOUT_PADDING: f32 = 6.0;
+/// Default corner radius of the readout panel.
+pub const READOUT_CORNER_RADIUS: f32 = 6.0;
+/// Default gap between the readout field and the value-mode toggle.
+pub const READOUT_SPACING: f32 = 6.0;
+/// Default font size for the value-mode toggle. The segmented control derives its
+/// padding from the font size, so a smaller font keeps it compact.
+pub const READOUT_SEGMENTED_FONT: f32 = 13.0;
 
 /// The x/y/z values to show for a mode's delta: translation for translate, scale
 /// for scale, and euler angles in degrees for rotate.
@@ -69,6 +82,48 @@ pub fn value_mode_from_index(index: u32) -> ValueMode {
         1 => ValueMode::Objective,
         _ => ValueMode::Relative,
     }
+}
+
+/// Build the gizmo's readout panel: a compact, rounded box that hugs a vector
+/// readout field and a value-mode toggle, centred, with the crate's default
+/// padding and styling. The host places it (for example bottom-centre of the
+/// viewport), refreshes the field with [`set_readout`] each frame, and applies the
+/// toggle. `panel_id`, `field_id`, and `mode_id` are the caller's widget ids for
+/// the three nodes, so it can address them afterwards.
+///
+/// Colours resolve against the active theme (surface, text), so the panel matches
+/// the surrounding UI. Toggle whether it is shown with
+/// [`GizmoTool::show_readout`](super::widget::GizmoTool::show_readout).
+pub fn readout_panel(
+    panel_id: WidgetId,
+    field_id: WidgetId,
+    mode_id: WidgetId,
+    value_mode: ValueMode,
+) -> Widget {
+    let field = readout_field(field_id);
+    let mode = value_mode_segmented(mode_id, value_mode).with_style(Style {
+        font_size: Metric::px(READOUT_SEGMENTED_FONT),
+        foreground: Paint::role(roles::TEXT),
+        ..Style::default()
+    });
+
+    Widget::new(panel_id, WidgetKind::Panel)
+        .with_style(Style {
+            background: Paint::role_alpha(roles::SURFACE, 0.95),
+            foreground: Paint::role(roles::TEXT),
+            padding: EdgeInsets::all(READOUT_PADDING),
+            ..Style::default()
+        })
+        .with_decoration(Decoration {
+            corner_radius: Metric::px(READOUT_CORNER_RADIUS),
+            ..Decoration::default()
+        })
+        .with_layout(Layout::Stack {
+            axis: Axis::Vertical,
+            spacing: READOUT_SPACING,
+            align: Align::Centre,
+        })
+        .with_children([field, mode])
 }
 
 #[cfg(test)]

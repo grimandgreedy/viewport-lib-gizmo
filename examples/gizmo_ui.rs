@@ -1,0 +1,329 @@
+//! The gizmo hosted as a viewport-lib-ui `Custom` widget.
+//!
+//! Unlike `gizmo_basic`, which submits the gizmo's overlay items straight to the
+//! renderer, this runs the gizmo through the viewport-lib-ui toolkit: the handles
+//! are painted by a `GizmoTool` custom widget in the same pass as the rest of the
+//! UI, the pointer is arbitrated once (a panel over the viewport and the camera
+//! yield to each other through one capture signal), and the numeric readout is a
+//! vector-editor field with a relative/objective segmented toggle beside it.
+//!
+//! The 3D maths, the camera, and the controller stay in the gizmo crate; the tool
+//! only bridges them to the toolkit. Drag a handle to move the cube; drag empty
+//! space to orbit; a click on the panel neither orbits nor moves the cube. Tab or
+//! Q cycles the mode, backtick toggles relative / objective, H hides the readout.
+//!
+//! Run with `cargo run --example gizmo_ui --features ui`.
+
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use glam::{Mat4, Quat, Vec3};
+use viewport_lib as vpl;
+use vpl::{
+    AppConfig, ButtonState, KeyCode, Material, NodeId, OrbitCameraController, ViewportApp,
+    ViewportContext, ViewportEvent, primitives,
+};
+
+use viewport_lib_ui::{
+    Anchor, Colour, InputTranslator, Layout, NoData, NoSource, Scroll, Screen, ShapedTextMeasurer,
+    Theme, ThemeMode, UiEvent, UiState, Value, Visibility, Widget, WidgetKind, WidgetRegistry,
+    custom_output, expand_customs, extend_frame, render_customs, roles, serde_json, theme_resolve,
+};
+
+use viewport_lib_gizmo::GizmoMode;
+use viewport_lib_gizmo::ui::{
+    GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, readout_panel, readout_values, set_readout,
+    value_mode_from_index, value_mode_index,
+};
+
+// Widget ids in the screen.
+const ROOT: u32 = 0;
+const GIZMO_PANE: u32 = 1;
+const INFO_PANEL: u32 = 10;
+const READOUT: u32 = 12;
+const MODE_SEG: u32 = 13;
+
+/// No textures and no custom fonts: the example draws no images and uses the house font.
+fn no_textures(_key: &str) -> Option<vpl::OverlayTextureId> {
+    None
+}
+fn no_fonts(_key: &str) -> Option<vpl::FontHandle> {
+    None
+}
+
+/// A compact dark palette covering the toolkit's role set, so the readout field and
+/// the segmented control resolve to real colours.
+fn dark_theme() -> Theme {
+    let mut roles_map: BTreeMap<String, Colour> = BTreeMap::new();
+    let mut set = |role: &str, colour: Colour| {
+        roles_map.insert(role.to_string(), colour);
+    };
+    set(roles::SURFACE, [0.12, 0.13, 0.16, 1.0]);
+    set(roles::SURFACE_VARIANT, [0.18, 0.19, 0.23, 1.0]);
+    set(roles::ON_SURFACE, [0.86, 0.88, 0.92, 1.0]);
+    set(roles::TEXT, [0.90, 0.92, 0.96, 1.0]);
+    set(roles::TEXT_MUTED, [0.60, 0.63, 0.70, 1.0]);
+    set(roles::ACCENT, [0.30, 0.62, 0.95, 1.0]);
+    set(roles::ON_ACCENT, [0.02, 0.05, 0.08, 1.0]);
+    set(roles::OUTLINE, [0.30, 0.33, 0.40, 1.0]);
+    set(roles::SHADOW, [0.0, 0.0, 0.0, 0.5]);
+    set(roles::SUCCESS, [0.35, 0.78, 0.45, 1.0]);
+    set(roles::WARNING, [0.95, 0.72, 0.25, 1.0]);
+    set(roles::ERROR, [0.92, 0.35, 0.38, 1.0]);
+    set(roles::INFO, [0.45, 0.65, 0.95, 1.0]);
+    Theme {
+        name: "gizmo dark".to_string(),
+        mode: ThemeMode::Dark,
+        roles: roles_map,
+        metrics: BTreeMap::new(),
+        base: None,
+    }
+}
+
+/// Build the screen: a full-viewport gizmo pane under a small readout panel.
+fn build_screen() -> Screen {
+    let gizmo = Widget::custom(GIZMO_PANE, GIZMO_KIND, serde_json::Value::Null)
+        .placed(Anchor::TopLeft, [0.0, 0.0], [1280.0, 720.0]);
+
+    // The readout panel is defined by the gizmo crate (styling and padding are its
+    // defaults); the host only places it.
+    let panel = readout_panel(INFO_PANEL, READOUT, MODE_SEG, viewport_lib_gizmo::ValueMode::Relative)
+        .placed(Anchor::BottomCentre, [0.0, -16.0], [0.0, 0.0]);
+
+    // The gizmo pane is first so the panel paints over it and wins the pointer where
+    // they overlap.
+    Screen::new(
+        Widget::new(ROOT, WidgetKind::Panel)
+            .with_layout(Layout::Free)
+            .with_children([gizmo, panel]),
+    )
+}
+
+/// Compose a gizmo delta around a world pivot onto a base transform.
+fn apply(delta: &GizmoDelta, pivot: Vec3, base: Mat4) -> Mat4 {
+    let translate = Mat4::from_translation(Vec3::from(delta.translation));
+    let rotate = Mat4::from_quat(Quat::from_array(delta.rotation));
+    let scale = Mat4::from_scale(Vec3::from(delta.scale));
+    let to_pivot = Mat4::from_translation(-pivot);
+    let from_pivot = Mat4::from_translation(pivot);
+    translate * from_pivot * rotate * scale * to_pivot * base
+}
+
+/// The whole app, shared between the input and run callbacks.
+struct App {
+    screen: Screen,
+    ui: UiState,
+    tool: Arc<GizmoTool>,
+    registry: WidgetRegistry,
+    theme: Theme,
+    node: Option<NodeId>,
+    base: Mat4,
+    current: Mat4,
+    last_delta: GizmoDelta,
+    grabbing: bool,
+}
+
+fn main() {
+    // The registry holds every handler as `Arc<dyn CustomWidget>`, so the tool must be
+    // an `Arc` even though it is single-threaded (its state is behind `RefCell`/`Cell`).
+    #[allow(clippy::arc_with_non_send_sync)]
+    let tool = Arc::new(GizmoTool::new());
+    let mut registry = WidgetRegistry::new();
+    registry.register(GIZMO_KIND, tool.clone());
+
+    let app = Rc::new(RefCell::new(App {
+        screen: build_screen(),
+        ui: UiState::new(),
+        tool,
+        registry,
+        theme: dark_theme(),
+        node: None,
+        base: Mat4::IDENTITY,
+        current: Mat4::IDENTITY,
+        last_delta: GizmoDelta::default(),
+        grabbing: false,
+    }));
+
+    ViewportApp::new(
+        AppConfig::default()
+            .with_title("viewport-lib-gizmo : ui frontend")
+            .with_window_size(1280, 720),
+    )
+    .setup({
+        let app = app.clone();
+        move |session, device| {
+            let cube = session
+                .resources_mut()
+                .upload_mesh_data(device, &primitives::cube(1.0))
+                .unwrap();
+            let transform = Mat4::from_translation(Vec3::ZERO);
+            let node = session.scene_mut().add(
+                Some(cube),
+                transform,
+                Material::from_colour([0.4, 0.6, 0.9]),
+            );
+            session.camera_mut().distance = 8.0;
+            let mut a = app.borrow_mut();
+            a.node = Some(node);
+            a.base = transform;
+            a.current = transform;
+        }
+    })
+    .with_input({
+        let app = app.clone();
+        let mut orbit = OrbitCameraController::viewport_all();
+        let mut translator = InputTranslator::new();
+        move |ictx| {
+            let vp_px = ictx.viewport_size();
+            orbit.begin_frame(ViewportContext {
+                hovered: true,
+                focused: true,
+                viewport_size: vp_px,
+            });
+
+            let grabbing = app.borrow().grabbing;
+            let events = ictx.events().to_vec();
+            for ev in &events {
+                if let ViewportEvent::Key {
+                    key,
+                    state: ButtonState::Pressed,
+                    repeat: false,
+                } = ev
+                {
+                    let a = app.borrow();
+                    match key {
+                        KeyCode::Tab | KeyCode::Q => {
+                            let next = match a.tool.mode() {
+                                GizmoMode::Translate => GizmoMode::Rotate,
+                                GizmoMode::Rotate => GizmoMode::Scale,
+                                _ => GizmoMode::Translate,
+                            };
+                            a.tool.set_mode(next);
+                        }
+                        KeyCode::Backtick => a.tool.set_value_mode(a.tool.value_mode().toggled()),
+                        KeyCode::H => a.tool.set_show_readout(!a.tool.show_readout()),
+                        _ => {}
+                    }
+                }
+                ictx.forward(ev.clone());
+                if !grabbing {
+                    orbit.push_event(ev.clone());
+                }
+            }
+            orbit.apply_to_camera(ictx.camera_mut());
+            let camera = ictx.camera_mut().clone();
+            let input = translator.frame(&events);
+            let measure = ShapedTextMeasurer::new(ictx.resources(), no_fonts);
+
+            let mut a = app.borrow_mut();
+            let App {
+                screen,
+                ui,
+                tool,
+                registry,
+                node,
+                base,
+                current,
+                last_delta,
+                grabbing,
+                ..
+            } = &mut *a;
+
+            let centre = current.col(3).truncate();
+            tool.set_frame(camera, Some(centre));
+            // Keep the pane covering the viewport as the window resizes.
+            if let Some(w) = screen.root.find_mut(GIZMO_PANE) {
+                w.size = vp_px;
+            }
+
+            let result = ui.update_customs(screen, &input, vp_px, &measure, registry, &NoSource, &NoData);
+
+            if node.is_some() {
+                match custom_output::<GizmoResult>(&result.events, GIZMO_PANE) {
+                    Ok(Some(GizmoResult::Update(delta))) => {
+                        *last_delta = delta;
+                        let pivot = base.col(3).truncate();
+                        *current = apply(&delta, pivot, *base);
+                    }
+                    Ok(Some(GizmoResult::Commit)) => {
+                        *base = *current;
+                        *last_delta = GizmoDelta::default();
+                    }
+                    Ok(Some(GizmoResult::Cancel))
+                    | Ok(Some(GizmoResult::ConstraintChanged)) => {
+                        *current = *base;
+                    }
+                    _ => {
+                        if !tool.is_active() {
+                            *base = *current;
+                        }
+                    }
+                }
+            }
+
+            // A pick on the value-mode segmented toggles the tool's value mode.
+            for event in &result.events {
+                if let UiEvent::ValueChanged { id, value } = event {
+                    if *id == MODE_SEG {
+                        if let Value::Index(index) = value {
+                            tool.set_value_mode(value_mode_from_index(*index));
+                        }
+                    }
+                }
+            }
+
+            // Refresh the readout and keep the segmented in sync with the tool.
+            set_readout(&mut screen.root, READOUT, readout_values(tool.mode(), last_delta));
+            if let Some(w) = screen.root.find_mut(MODE_SEG) {
+                if let WidgetKind::Segmented { selected, .. } = &mut w.kind {
+                    *selected = value_mode_index(tool.value_mode());
+                }
+            }
+
+            // The show_readout flag on the tool gates the panel's visibility.
+            if let Some(w) = screen.root.find_mut(INFO_PANEL) {
+                w.visibility = if tool.show_readout() {
+                    Visibility::Shown
+                } else {
+                    Visibility::Hidden
+                };
+            }
+
+            // Suppress orbit next frame whenever the UI took the pointer (a hovered
+            // handle, a live drag, or a click on the panel).
+            *grabbing = result.capture.pointer;
+        }
+    })
+    .run({
+        let app = app.clone();
+        move |ctx| {
+            let vp_px = ctx.viewport_size();
+
+            // Push the object's current transform to the scene first, before the text
+            // measurer borrows the frame's resources.
+            {
+                let a = app.borrow();
+                if let Some(node) = a.node {
+                    ctx.scene_mut().set_local_transform(node, a.current);
+                }
+            }
+
+            let measure = ShapedTextMeasurer::new(ctx.resources(), no_fonts);
+            let a = app.borrow();
+            let composed = expand_customs(&a.screen, &a.registry, &NoSource, &NoData, &measure);
+            let themed = theme_resolve(&composed, &a.theme);
+            let list = render_customs(
+                &themed,
+                vp_px,
+                &measure,
+                &Scroll::default(),
+                &a.registry,
+                &NoSource,
+                &NoData,
+            );
+            extend_frame(&list, ctx.overlays_mut(), &no_textures, &no_fonts);
+        }
+    });
+}

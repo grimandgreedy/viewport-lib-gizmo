@@ -37,6 +37,16 @@ viewport-lib = { path = "../viewport-lib/crates/viewport-lib", features = [
 # eframe drives the sidebar example. Pinned to the version viewport-lib's own
 # eframe examples use (the wgpu 27 leg).
 eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts"] }
+# The vpl-ui frontend example runs the toolkit end to end: it lowers the DrawList
+# to overlay items, translates input, and measures text. Only the example needs
+# the facade; the library's `ui` feature stays on the renderer-free sub-crates.
+viewport-lib-ui = { path = "../viewport-lib-ui/crates/ui" }
+
+# The facade depends on viewport-lib by version; point it at the same local crate
+# the gizmo uses so the overlay item types are one and the same.
+[patch.crates-io]
+viewport-lib = { path = "../viewport-lib/crates/viewport-lib" }
+viewport-lib-types = { path = "../viewport-lib/crates/viewport-lib-types" }
 
 # A gizmo drawn over one object, driven end to end with the ViewportApp runner.
 [[example]]
@@ -47,3 +57,10 @@ path = "examples/gizmo_basic.rs"
 [[example]]
 name = "gizmo_styling"
 path = "examples/gizmo_styling.rs"
+
+# The gizmo hosted as a viewport-lib-ui Custom widget, with a panel over the scene
+# to show capture arbitration and a vector-field readout. Needs the `ui` feature.
+[[example]]
+name = "gizmo_ui"
+path = "examples/gizmo_ui.rs"
+required-features = ["ui"]

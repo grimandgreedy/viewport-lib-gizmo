@@ -21,7 +21,8 @@ pub mod widget;
 
 pub use convert::{polyline_command, push_gizmo_overlays, shape_command};
 pub use readout::{
-    readout_field, readout_values, set_readout, value_mode_from_index, value_mode_index,
+    READOUT_CORNER_RADIUS, READOUT_PADDING, READOUT_SEGMENTED_FONT, READOUT_SPACING, readout_field,
+    readout_panel, readout_values, set_readout, value_mode_from_index, value_mode_index,
     value_mode_segmented,
 };
 pub use widget::{GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, output_schema};
