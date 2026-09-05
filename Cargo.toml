@@ -13,7 +13,7 @@ default = []
 # the toolkit's draw path and reports a transform delta. It pulls only the two
 # renderer-free viewport-lib-ui crates (both pure Rust and serde-only), so the
 # default build stays on viewport-lib-types + glam and never touches the renderer.
-ui = ["dep:viewport-lib-ui-core", "dep:viewport-lib-ui-document"]
+ui = ["dep:viewport-lib-ui-core", "dep:viewport-lib-ui-document", "dep:serde"]
 
 [dependencies]
 glam = { version = "=0.30.10", features = ["bytemuck"] }
@@ -22,6 +22,9 @@ viewport-lib-types = { path = "../viewport-lib/crates/viewport-lib-types" }
 # with no viewport-lib or wgpu dependency; document is the serializable widget tree.
 viewport-lib-ui-core = { path = "../viewport-lib-ui/crates/core", optional = true }
 viewport-lib-ui-document = { path = "../viewport-lib-ui/crates/document", optional = true }
+# Only under `ui`. Lets the tool report its transform delta as a typed result the
+# host reads back, and define the output schema. Pure Rust, no renderer.
+serde = { version = "1", optional = true, features = ["derive"] }
 
 [dev-dependencies]
 # The renderer is needed only by examples that draw the overlay items, not by

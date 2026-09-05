@@ -16,5 +16,7 @@
 //! for consumers who submit to a renderer without the UI toolkit.
 
 pub mod convert;
+pub mod widget;
 
 pub use convert::{polyline_command, push_gizmo_overlays, shape_command};
+pub use widget::{GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, output_schema};
