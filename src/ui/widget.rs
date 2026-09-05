@@ -33,7 +33,7 @@ use viewport_lib_ui_core::{
 };
 
 use crate::controller::driver::FrameInput;
-use crate::controller::{GizmoDriver, ManipResult, TransformDelta};
+use crate::controller::{GizmoDriver, ManipResult, TransformDelta, ValueMode};
 use crate::maths::gizmo::{self, GizmoAxis, GizmoMode, GizmoSpace};
 use crate::overlay::builder::build_gizmo_overlays;
 use crate::overlay::style::GizmoStyle;
@@ -172,6 +172,18 @@ impl GizmoTool {
     /// Set the gizmo space (world / local).
     pub fn set_space(&self, space: GizmoSpace) {
         self.driver.borrow_mut().set_space(space);
+    }
+
+    /// Whether values are read relative to the start pose or as absolute
+    /// (objective) world values.
+    pub fn value_mode(&self) -> ValueMode {
+        self.driver.borrow().value_mode()
+    }
+
+    /// Set the value mode. Pair this with the segmented control from
+    /// [`value_mode_segmented`](super::readout::value_mode_segmented).
+    pub fn set_value_mode(&self, mode: ValueMode) {
+        self.driver.borrow_mut().set_value_mode(mode);
     }
 
     /// True while a drag or a keyboard session is in progress.

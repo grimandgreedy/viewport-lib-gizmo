@@ -16,7 +16,12 @@
 //! for consumers who submit to a renderer without the UI toolkit.
 
 pub mod convert;
+pub mod readout;
 pub mod widget;
 
 pub use convert::{polyline_command, push_gizmo_overlays, shape_command};
+pub use readout::{
+    readout_field, readout_values, set_readout, value_mode_from_index, value_mode_index,
+    value_mode_segmented,
+};
 pub use widget::{GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, output_schema};
