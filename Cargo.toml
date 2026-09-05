@@ -7,9 +7,21 @@ description = "Standalone transform gizmo for viewport-lib scenes: renderer-free
 license = "GPL-3.0-only"
 autoexamples = false
 
+[features]
+default = []
+# The `ui` frontend: a viewport-lib-ui Custom widget that draws the gizmo through
+# the toolkit's draw path and reports a transform delta. It pulls only the two
+# renderer-free viewport-lib-ui crates (both pure Rust and serde-only), so the
+# default build stays on viewport-lib-types + glam and never touches the renderer.
+ui = ["dep:viewport-lib-ui-core", "dep:viewport-lib-ui-document"]
+
 [dependencies]
 glam = { version = "=0.30.10", features = ["bytemuck"] }
 viewport-lib-types = { path = "../viewport-lib/crates/viewport-lib-types" }
+# Only under the `ui` feature. Layout, interaction, and the DrawCommand vocabulary,
+# with no viewport-lib or wgpu dependency; document is the serializable widget tree.
+viewport-lib-ui-core = { path = "../viewport-lib-ui/crates/core", optional = true }
+viewport-lib-ui-document = { path = "../viewport-lib-ui/crates/document", optional = true }
 
 [dev-dependencies]
 # The renderer is needed only by examples that draw the overlay items, not by
