@@ -19,6 +19,11 @@
 //! before the panels in the tree (on the default `Content` layer) so a panel over
 //! the viewport still wins the pointer. The widget captures only over a handle or
 //! mid-drag, so empty space falls through to the camera.
+//!
+//! Because the pane covers the viewport, chrome can end up drawn over a handle. The
+//! widget acts on the pointer only while the toolkit reports the pane as the widget
+//! under it, so a control laid over a handle takes the press rather than the gizmo.
+//! A live drag or keyboard session keeps the pointer wherever it travels.
 
 use std::cell::{Cell, RefCell};
 
@@ -29,7 +34,7 @@ use viewport_lib_types::input::ActionFrame;
 
 use viewport_lib_ui_core::serde_json;
 use viewport_lib_ui_core::{
-    CustomCtx, CustomInput, CustomWidget, DrawList, Input, Rect, Style, TextMeasure,
+    Cursor, CustomCtx, CustomInput, CustomWidget, DrawList, Input, Rect, Style, TextMeasure,
 };
 
 use crate::controller::driver::FrameInput;
@@ -45,6 +50,12 @@ pub const GIZMO_KIND: &str = "gizmo";
 
 /// A transform delta as plain arrays, so it serialises without a glam serde
 /// dependency. `rotation` is a quaternion in `[x, y, z, w]` order.
+///
+/// A typed number replaces the dragged value on the axis it was typed for. Those
+/// arrive in the three `*_override` arrays, one slot per axis, `None` where nothing
+/// was typed. Apply an override in place of the corresponding dragged component:
+/// [`position`](Self::position) and [`scale_values`](Self::scale_values) do that
+/// for the two that are plain vectors.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct GizmoDelta {
     /// Total translation since the drag began.
@@ -53,6 +64,15 @@ pub struct GizmoDelta {
     pub rotation: [f32; 4],
     /// Total scale since the drag began.
     pub scale: [f32; 3],
+    /// A typed position per axis, replacing that axis of `translation`.
+    #[serde(default)]
+    pub position_override: [Option<f32>; 3],
+    /// A typed angle per axis, in radians, replacing that axis of the rotation.
+    #[serde(default)]
+    pub rotation_override: [Option<f32>; 3],
+    /// A typed scale per axis, replacing that axis of `scale`.
+    #[serde(default)]
+    pub scale_override: [Option<f32>; 3],
 }
 
 impl Default for GizmoDelta {
@@ -61,7 +81,38 @@ impl Default for GizmoDelta {
             translation: [0.0; 3],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0; 3],
+            position_override: [None; 3],
+            rotation_override: [None; 3],
+            scale_override: [None; 3],
         }
+    }
+}
+
+impl GizmoDelta {
+    /// The translation to apply, with any typed value standing in for the dragged
+    /// one on its axis. In [`ValueMode::Objective`](crate::ValueMode::Objective) a
+    /// typed value is an absolute world coordinate, so add the start position back
+    /// yourself rather than using this.
+    pub fn position(&self) -> [f32; 3] {
+        let mut out = self.translation;
+        for (i, typed) in self.position_override.iter().enumerate() {
+            if let Some(value) = typed {
+                out[i] = *value;
+            }
+        }
+        out
+    }
+
+    /// The scale to apply, with any typed value standing in for the dragged one on
+    /// its axis.
+    pub fn scale_values(&self) -> [f32; 3] {
+        let mut out = self.scale;
+        for (i, typed) in self.scale_override.iter().enumerate() {
+            if let Some(value) = typed {
+                out[i] = *value;
+            }
+        }
+        out
     }
 }
 
@@ -71,6 +122,9 @@ impl From<TransformDelta> for GizmoDelta {
             translation: delta.translation.to_array(),
             rotation: delta.rotation.to_array(),
             scale: delta.scale.to_array(),
+            position_override: delta.position_override,
+            rotation_override: delta.rotation_override,
+            scale_override: delta.scale_override,
         }
     }
 }
@@ -280,7 +334,7 @@ impl CustomWidget for GizmoTool {
         push_gizmo_overlays(out, &shapes, &polylines);
     }
 
-    fn input(&self, _ctx: &CustomCtx, rect: Rect, input: &Input) -> CustomInput {
+    fn input(&self, ctx: &CustomCtx, rect: Rect, input: &Input) -> CustomInput {
         let (camera, centre, action_frame) = {
             let frame = self.frame.borrow();
             (
@@ -292,12 +346,22 @@ impl CustomWidget for GizmoTool {
 
         let viewport = Vec2::new(rect.width(), rect.height());
         let cursor_abs = Vec2::new(input.cursor[0], input.cursor[1]);
-        let cursor_viewport = Some(cursor_abs - Vec2::new(rect.min[0], rect.min[1]));
         let pointer_delta = match self.last_cursor.get() {
             Some(previous) => cursor_abs - previous,
             None => Vec2::ZERO,
         };
         self.last_cursor.set(Some(cursor_abs));
+
+        // Whether the pointer is the gizmo's to act on. The pane covers the whole
+        // viewport, so a panel or button drawn over it can sit on top of a handle;
+        // the toolkit reports which widget the pointer is really on, and chrome above
+        // the pane owns it. A live session keeps the pointer wherever it travels, so a
+        // drag or a keyboard move carries on across a panel.
+        let session_live = self.driver.borrow().is_active();
+        let ours = ctx.state.hovered || session_live;
+        // Withhold the cursor when it is not ours, so the hit-test clears the hovered
+        // handle instead of lighting one up under a panel.
+        let cursor_viewport = ours.then(|| cursor_abs - Vec2::new(rect.min[0], rect.min[1]));
 
         // The host's resolved action frame carries keyboard g/r/s and numeric entry;
         // the pointer flags below drive the gizmo drag. The controller reads each from
@@ -309,9 +373,9 @@ impl CustomWidget for GizmoTool {
             cursor_viewport,
             pointer_delta,
             selection_center: centre,
-            drag_started: input.primary_pressed,
-            dragging: input.primary_down,
-            clicked: input.primary_released,
+            drag_started: ours && input.primary_pressed,
+            dragging: ours && input.primary_down,
+            clicked: ours && input.primary_released,
         });
 
         let (active, hovered) = {
@@ -321,6 +385,15 @@ impl CustomWidget for GizmoTool {
         // Hold the pointer while a handle is hovered or a drag is live, so the camera
         // and panels yield only where the gizmo is actually interactive.
         let capture_pointer = active || hovered != GizmoAxis::None;
+        // The shape over a handle: open while it can be taken, closed while it is being
+        // dragged. Left alone elsewhere, so empty viewport and chrome keep their own.
+        let cursor = if active {
+            Some(Cursor::Grabbing)
+        } else if hovered != GizmoAxis::None {
+            Some(Cursor::Grab)
+        } else {
+            None
+        };
 
         let output = gizmo_result(result)
             .map(|result| serde_json::to_value(result).expect("a gizmo result serialises"));
@@ -328,6 +401,7 @@ impl CustomWidget for GizmoTool {
         CustomInput {
             output,
             capture_pointer,
+            cursor,
             ..Default::default()
         }
     }
@@ -342,6 +416,13 @@ pub fn output_schema() -> serde_json::Value {
     let vec4 = serde_json::json!({
         "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4
     });
+    // A typed value per axis, null where nothing was typed.
+    let overrides = serde_json::json!({
+        "type": "array",
+        "items": { "type": ["number", "null"] },
+        "minItems": 3,
+        "maxItems": 3
+    });
     serde_json::json!({
         "oneOf": [
             {
@@ -351,7 +432,14 @@ pub fn output_schema() -> serde_json::Value {
                     "Update": {
                         "type": "object",
                         "required": ["translation", "rotation", "scale"],
-                        "properties": { "translation": vec3, "rotation": vec4, "scale": vec3 }
+                        "properties": {
+                            "translation": vec3,
+                            "rotation": vec4,
+                            "scale": vec3,
+                            "position_override": overrides,
+                            "rotation_override": overrides,
+                            "scale_override": overrides
+                        }
                     }
                 }
             },
@@ -373,7 +461,7 @@ fn gizmo_result(result: ManipResult) -> Option<GizmoResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use viewport_lib_ui_core::{NoData, NoSource};
+    use viewport_lib_ui_core::{CustomState, NoData, NoSource};
 
     const VP: [f32; 2] = [1280.0, 720.0];
 
@@ -391,13 +479,27 @@ mod tests {
         Vec2::new((ndc.x * 0.5 + 0.5) * VP[0], (1.0 - (ndc.y * 0.5 + 0.5)) * VP[1])
     }
 
+    /// A context with the pointer on the pane, the usual case.
     fn ctx<'a>(params: &'a serde_json::Value, src: &'a NoSource, data: &'a NoData) -> CustomCtx<'a> {
+        ctx_hovered(params, src, data, true)
+    }
+
+    /// A context whose `hovered` says whether the pane is the widget the pointer is
+    /// on, the way the toolkit's interaction walk settles it: false when chrome is
+    /// drawn over the pane at the cursor.
+    fn ctx_hovered<'a>(
+        params: &'a serde_json::Value,
+        src: &'a NoSource,
+        data: &'a NoData,
+        hovered: bool,
+    ) -> CustomCtx<'a> {
         CustomCtx {
             params,
             values: src,
             data,
             content: &[],
             rect: None,
+            state: CustomState { hovered, ..Default::default() },
         }
     }
 
@@ -459,6 +561,82 @@ mod tests {
     }
 
     #[test]
+    fn chrome_over_a_handle_takes_the_press_off_the_gizmo() {
+        let tool = GizmoTool::new();
+        let cam = camera();
+        tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
+        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
+        let cursor = x_handle_cursor(&cam);
+
+        // The same point on the X arm, but with a control drawn over the pane there, so
+        // the pane is not the widget the pointer is on.
+        let covered = ctx_hovered(&params, &src, &data, false);
+        let over = tool.input(&covered, full_rect(), &Input::at(cursor.to_array()));
+        assert!(!over.capture_pointer, "the control above the handle owns the pointer");
+        assert_eq!(over.cursor, None, "and keeps its own shape");
+
+        // The press belongs to that control: it must not begin a gizmo drag.
+        let pressed = tool.input(&covered, full_rect(), &Input::at(cursor.to_array()).press());
+        assert!(!pressed.capture_pointer);
+        assert!(pressed.output.is_none(), "no drag began under the chrome");
+        assert!(!tool.is_active());
+
+        // Uncovered, the same point is the gizmo's again.
+        let over = tool.input(&ctx(&params, &src, &data), full_rect(), &Input::at(cursor.to_array()));
+        assert!(over.capture_pointer, "the handle is live where nothing covers it");
+    }
+
+    #[test]
+    fn a_drag_carries_on_across_chrome() {
+        let tool = GizmoTool::new();
+        let cam = camera();
+        tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
+        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
+        let start = x_handle_cursor(&cam);
+
+        // Begin the drag on the bare handle.
+        tool.input(
+            &ctx(&params, &src, &data),
+            full_rect(),
+            &Input::at(start.to_array()).press(),
+        );
+        assert!(tool.is_active());
+
+        // The pointer travels over a panel mid-drag. The session owns it regardless of
+        // what is drawn under the cursor, so the drag still reports its delta.
+        let mut held = Input::at([start.x + 60.0, start.y]);
+        held.primary_down = true;
+        let dragged = tool.input(&ctx_hovered(&params, &src, &data, false), full_rect(), &held);
+        assert!(dragged.capture_pointer, "a live drag keeps the pointer");
+        assert!(dragged.output.is_some(), "and keeps reporting its delta");
+    }
+
+    #[test]
+    fn the_pointer_reads_as_a_grab_over_a_handle() {
+        let tool = GizmoTool::new();
+        let cam = camera();
+        tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
+        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
+
+        // Empty viewport: the gizmo names no shape, so the host's own stands.
+        let idle = tool.input(&ctx(&params, &src, &data), full_rect(), &Input::at([5.0, 5.0]));
+        assert_eq!(idle.cursor, None);
+
+        // Over the X arm: open, the handle can be taken.
+        let cursor = x_handle_cursor(&cam);
+        let over = tool.input(&ctx(&params, &src, &data), full_rect(), &Input::at(cursor.to_array()));
+        assert_eq!(over.cursor, Some(Cursor::Grab));
+
+        // Dragging it: closed.
+        let dragging = tool.input(
+            &ctx(&params, &src, &data),
+            full_rect(),
+            &Input::at(cursor.to_array()).press(),
+        );
+        assert_eq!(dragging.cursor, Some(Cursor::Grabbing));
+    }
+
+    #[test]
     fn dragging_a_handle_reports_a_typed_update() {
         let tool = GizmoTool::new();
         let cam = camera();
@@ -486,6 +664,40 @@ mod tests {
                     delta.translation.iter().any(|v| v.abs() > 1e-4),
                     "the drag moved the object: {delta:?}"
                 );
+            }
+            other => panic!("expected an update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_typed_number_reaches_the_host_through_the_delta() {
+        use viewport_lib_types::input::{Action, ResolvedActionState};
+
+        let tool = GizmoTool::new();
+        let cam = camera();
+        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
+        let cursor = Input::at([640.0, 360.0]);
+
+        // Press G to begin a keyboard move.
+        let mut begin = ActionFrame::default();
+        begin.actions.insert(Action::BeginMove, ResolvedActionState::Pressed);
+        tool.set_frame(cam.clone(), Some(Vec3::ZERO), begin);
+        tool.input(&ctx(&params, &src, &data), full_rect(), &cursor);
+        assert!(tool.is_active(), "G starts a session");
+
+        // Type "5". It lands on the first axis and must reach the host, not just the
+        // readout: a number typed into a session is how the value is set at all.
+        let mut typed = ActionFrame::default();
+        typed.typed_chars = vec!['5'];
+        tool.set_frame(cam.clone(), Some(Vec3::ZERO), typed);
+        let out = tool.input(&ctx(&params, &src, &data), full_rect(), &cursor);
+
+        let value = out.output.expect("the typed frame reports a result");
+        match serde_json::from_value::<GizmoResult>(value).expect("the result deserialises") {
+            GizmoResult::Update(delta) => {
+                assert_eq!(delta.position_override[0], Some(5.0), "the typed value carries");
+                assert_eq!(delta.position()[0], 5.0, "and stands in for the dragged one");
+                assert_eq!(delta.position_override[1], None, "untyped axes stay open");
             }
             other => panic!("expected an update, got {other:?}"),
         }

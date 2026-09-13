@@ -32,14 +32,21 @@ pub const READOUT_SPACING: f32 = 6.0;
 pub const READOUT_SEGMENTED_FONT: f32 = 13.0;
 
 /// The x/y/z values to show for a mode's delta: translation for translate, scale
-/// for scale, and euler angles in degrees for rotate.
+/// for scale, and euler angles in degrees for rotate. A value typed for an axis is
+/// shown in place of the dragged one, so the field reads back what was entered.
 pub fn readout_values(mode: GizmoMode, delta: &GizmoDelta) -> [f32; 3] {
     match mode {
-        GizmoMode::Translate => delta.translation,
-        GizmoMode::Scale => delta.scale,
+        GizmoMode::Translate => delta.position(),
+        GizmoMode::Scale => delta.scale_values(),
         GizmoMode::Rotate => {
             let (x, y, z) = Quat::from_array(delta.rotation).to_euler(EulerRot::XYZ);
-            [x.to_degrees(), y.to_degrees(), z.to_degrees()]
+            let mut out = [x.to_degrees(), y.to_degrees(), z.to_degrees()];
+            for (i, typed) in delta.rotation_override.iter().enumerate() {
+                if let Some(angle) = typed {
+                    out[i] = angle.to_degrees();
+                }
+            }
+            out
         }
     }
 }
@@ -136,6 +143,7 @@ mod tests {
             translation: [1.0, 2.0, 3.0],
             scale: [4.0, 5.0, 6.0],
             rotation: Quat::from_rotation_z(std::f32::consts::FRAC_PI_2).to_array(),
+            ..Default::default()
         };
         assert_eq!(readout_values(GizmoMode::Translate, &delta), [1.0, 2.0, 3.0]);
         assert_eq!(readout_values(GizmoMode::Scale, &delta), [4.0, 5.0, 6.0]);
@@ -143,6 +151,20 @@ mod tests {
         let [rx, ry, rz] = readout_values(GizmoMode::Rotate, &delta);
         assert!(rx.abs() < 1e-3 && ry.abs() < 1e-3);
         assert!((rz - 90.0).abs() < 1e-3, "a quarter turn about Z reads 90 degrees");
+    }
+
+    #[test]
+    fn a_typed_value_shows_in_the_readout() {
+        let delta = GizmoDelta {
+            translation: [1.0, 2.0, 3.0],
+            position_override: [Some(5.0), None, None],
+            ..Default::default()
+        };
+        assert_eq!(
+            readout_values(GizmoMode::Translate, &delta),
+            [5.0, 2.0, 3.0],
+            "the typed X stands in, the dragged Y and Z stay"
+        );
     }
 
     #[test]

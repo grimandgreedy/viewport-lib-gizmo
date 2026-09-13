@@ -9,9 +9,11 @@
 //!
 //! The 3D maths, the camera, and the controller stay in the gizmo crate; the tool
 //! only bridges them to the toolkit. Drag a handle to move the cube; drag empty
-//! space to orbit; a click on the panel neither orbits nor moves the cube. Press
-//! G, R, or S to start a keyboard move / rotate / scale session; Tab or Q cycles
-//! the gizmo mode, backtick toggles relative / objective, H hides the readout.
+//! space to orbit; a click on the panel neither orbits nor moves the cube. The
+//! pointer reads as an open hand over a handle and a closed one while dragging it.
+//! Press G, R, or S to start a keyboard move / rotate / scale session; Tab or Q
+//! cycles the gizmo mode, backtick toggles relative / objective, H hides the
+//! readout.
 //!
 //! Run with `cargo run --example gizmo_ui --features ui`.
 
@@ -33,7 +35,7 @@ use viewport_lib_ui::{
     custom_output, expand_customs, extend_frame, render_customs, roles, serde_json, theme_resolve,
 };
 
-use viewport_lib_gizmo::GizmoMode;
+use viewport_lib_gizmo::{GizmoMode, ValueMode};
 use viewport_lib_gizmo::ui::{
     GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, readout_panel, readout_values, set_readout,
     value_mode_from_index, value_mode_index,
@@ -102,14 +104,27 @@ fn build_screen() -> Screen {
     )
 }
 
-/// Compose a gizmo delta around a world pivot onto a base transform.
-fn apply(delta: &GizmoDelta, pivot: Vec3, base: Mat4) -> Mat4 {
+/// Compose a gizmo delta around a world pivot onto a base transform. A number typed
+/// during a session arrives as an override for its axis and replaces the dragged
+/// value there: relative to the start pose, or as an absolute world coordinate in
+/// objective mode.
+fn apply(delta: &GizmoDelta, pivot: Vec3, base: Mat4, values: ValueMode) -> Mat4 {
     let translate = Mat4::from_translation(Vec3::from(delta.translation));
     let rotate = Mat4::from_quat(Quat::from_array(delta.rotation));
-    let scale = Mat4::from_scale(Vec3::from(delta.scale));
+    let scale = Mat4::from_scale(Vec3::from(delta.scale_values()));
     let to_pivot = Mat4::from_translation(-pivot);
     let from_pivot = Mat4::from_translation(pivot);
-    translate * from_pivot * rotate * scale * to_pivot * base
+    let mut m = translate * from_pivot * rotate * scale * to_pivot * base;
+    let base_pos = base.col(3);
+    for (i, typed) in delta.position_override.iter().enumerate() {
+        if let Some(value) = typed {
+            m.col_mut(3)[i] = match values {
+                ValueMode::Objective => *value,
+                _ => base_pos[i] + *value,
+            };
+        }
+    }
+    m
 }
 
 /// The whole app, shared between the input and run callbacks.
@@ -275,7 +290,7 @@ fn main() {
                     Ok(Some(GizmoResult::Update(delta))) => {
                         *last_delta = delta;
                         let pivot = base.col(3).truncate();
-                        *current = apply(&delta, pivot, *base);
+                        *current = apply(&delta, pivot, *base, tool.value_mode());
                     }
                     Ok(Some(GizmoResult::Commit)) => {
                         *base = *current;
