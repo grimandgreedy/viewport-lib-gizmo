@@ -14,8 +14,11 @@
 //! The readout counts the drag in relative mode and reads the cube's own world
 //! position, rotation, or scale in objective mode.
 //! Press G, R, or S to start a keyboard move / rotate / scale session; Tab or Q
-//! cycles the gizmo mode, backtick toggles relative / objective, H hides the
-//! readout.
+//! cycles the gizmo mode, backtick toggles relative / objective, H cycles the readout
+//! between always shown, shown only while a session is running, and hidden.
+//!
+//! The readout carries a G / R / S badge for the mode it is reading, matching the key
+//! that starts that session.
 //!
 //! Run with `cargo run --example gizmo_ui --features ui`.
 
@@ -40,16 +43,19 @@ use viewport_lib_ui::{
 
 use viewport_lib_gizmo::{GizmoMode, ValueMode};
 use viewport_lib_gizmo::ui::{
-    GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, ObjectPose, readout_panel, readout_values_in,
-    set_readout, value_mode_from_index, value_mode_index,
+    GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, ObjectPose, ReadoutIds, ReadoutWhen,
+    readout_panel, readout_values_in, set_mode_badge, set_readout, value_mode_from_index,
+    value_mode_index,
 };
 
 // Widget ids in the screen.
 const ROOT: u32 = 0;
 const GIZMO_PANE: u32 = 1;
 const INFO_PANEL: u32 = 10;
+const READOUT_ROW: u32 = 11;
 const READOUT: u32 = 12;
 const MODE_SEG: u32 = 13;
+const MODE_BADGE: u32 = 14;
 
 /// No textures and no custom fonts: the example draws no images and uses the house font.
 fn no_textures(_key: &str) -> Option<vpl::OverlayTextureId> {
@@ -95,8 +101,18 @@ fn build_screen() -> Screen {
 
     // The readout panel is defined by the gizmo crate (styling and padding are its
     // defaults); the host only places it.
-    let panel = readout_panel(INFO_PANEL, READOUT, MODE_SEG, viewport_lib_gizmo::ValueMode::Relative)
-        .placed(Anchor::BottomCentre, [0.0, -16.0], [0.0, 0.0]);
+    let panel = readout_panel(
+        ReadoutIds {
+            panel: INFO_PANEL,
+            row: READOUT_ROW,
+            badge: MODE_BADGE,
+            field: READOUT,
+            mode: MODE_SEG,
+        },
+        GizmoMode::Translate,
+        ValueMode::Relative,
+    )
+    .placed(Anchor::BottomCentre, [0.0, -16.0], [0.0, 0.0]);
 
     // The gizmo pane is first so the panel paints over it and wins the pointer where
     // they overlap.
@@ -234,7 +250,21 @@ fn main() {
                             a.tool.set_mode(next);
                         }
                         KeyCode::Backtick => a.tool.set_value_mode(a.tool.value_mode().toggled()),
-                        KeyCode::H => a.tool.set_show_readout(!a.tool.show_readout()),
+                        KeyCode::H => {
+                            // Cycle the readout: always shown, shown only while a drag or
+                            // a keyboard session is running, hidden.
+                            let tool = &a.tool;
+                            match (tool.show_readout(), tool.readout_when()) {
+                                (true, ReadoutWhen::Always) => {
+                                    tool.set_readout_when(ReadoutWhen::WhileActive)
+                                }
+                                (true, _) => tool.set_show_readout(false),
+                                _ => {
+                                    tool.set_show_readout(true);
+                                    tool.set_readout_when(ReadoutWhen::Always);
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -331,6 +361,7 @@ fn main() {
             // mode counts the drag; objective reads the cube's own world values, so the
             // field needs the pose the host is holding.
             let pose = ObjectPose::from_matrix(*current);
+            set_mode_badge(&mut screen.root, MODE_BADGE, tool.mode());
             set_readout(
                 &mut screen.root,
                 READOUT,
@@ -344,7 +375,7 @@ fn main() {
 
             // The show_readout flag on the tool gates the panel's visibility.
             if let Some(w) = screen.root.find_mut(INFO_PANEL) {
-                w.visibility = if tool.show_readout() {
+                w.visibility = if tool.readout_visible() {
                     Visibility::Shown
                 } else {
                     Visibility::Hidden

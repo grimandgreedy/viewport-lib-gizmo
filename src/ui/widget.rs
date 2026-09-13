@@ -145,6 +145,18 @@ pub enum GizmoResult {
     ConstraintChanged,
 }
 
+/// When the readout panel is worth showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum ReadoutWhen {
+    /// Always, so the field reads the object's values even at rest (the default).
+    #[default]
+    Always,
+    /// Only while a drag or a keyboard session is running, so the panel is out of the
+    /// way until there is something being changed.
+    WhileActive,
+}
+
 /// The camera, selection, and resolved input the host supplies for a frame.
 struct FrameState {
     camera: Camera,
@@ -172,6 +184,7 @@ pub struct GizmoTool {
     style: RefCell<GizmoStyle>,
     last_cursor: Cell<Option<Vec2>>,
     show_readout: Cell<bool>,
+    readout_when: Cell<ReadoutWhen>,
 }
 
 impl Default for GizmoTool {
@@ -194,6 +207,7 @@ impl GizmoTool {
             style: RefCell::new(style),
             last_cursor: Cell::new(None),
             show_readout: Cell::new(true),
+            readout_when: Cell::new(ReadoutWhen::Always),
         }
     }
 
@@ -207,6 +221,30 @@ impl GizmoTool {
     /// Set whether the readout panel is shown.
     pub fn set_show_readout(&self, show: bool) {
         self.show_readout.set(show);
+    }
+
+    /// When the readout panel is worth showing. Defaults to
+    /// [`Always`](ReadoutWhen::Always).
+    pub fn readout_when(&self) -> ReadoutWhen {
+        self.readout_when.get()
+    }
+
+    /// Set when the readout panel is worth showing.
+    pub fn set_readout_when(&self, when: ReadoutWhen) {
+        self.readout_when.set(when);
+    }
+
+    /// Whether the readout panel should be visible right now: the two settings above
+    /// answered together, so a host can set the panel's visibility from one call. Off
+    /// whenever [`show_readout`](Self::show_readout) is off, and under
+    /// [`WhileActive`](ReadoutWhen::WhileActive) only while a drag or a keyboard session
+    /// is running.
+    pub fn readout_visible(&self) -> bool {
+        self.show_readout.get()
+            && match self.readout_when.get() {
+                ReadoutWhen::WhileActive => self.is_active(),
+                _ => true,
+            }
     }
 
     /// Set this frame's camera, selection pivot, and resolved input. Call once per

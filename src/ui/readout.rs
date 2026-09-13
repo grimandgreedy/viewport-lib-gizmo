@@ -18,7 +18,7 @@
 
 use glam::{EulerRot, Mat4, Quat};
 use viewport_lib_ui_document::{
-    Align, Axis, Decoration, EdgeInsets, Layout, Metric, Paint, Style, Widget, WidgetId,
+    Align, Axis, Badge, Decoration, EdgeInsets, Layout, Metric, Paint, Style, Widget, WidgetId,
     WidgetKind, roles,
 };
 
@@ -36,6 +36,57 @@ pub const READOUT_SPACING: f32 = 6.0;
 /// Default font size for the value-mode toggle. The segmented control derives its
 /// padding from the font size, so a smaller font keeps it compact.
 pub const READOUT_SEGMENTED_FONT: f32 = 13.0;
+/// Default font size for the mode badge. The badge sizes its pill from the font.
+pub const READOUT_BADGE_FONT: f32 = 13.0;
+
+/// The ids the readout panel's widgets take. The host owns the id space, so it names
+/// every widget the panel builds, down to the row that holds the badge and the values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReadoutIds {
+    /// The panel itself.
+    pub panel: WidgetId,
+    /// The row holding the badge and the value field.
+    pub row: WidgetId,
+    /// The mode badge.
+    pub badge: WidgetId,
+    /// The x/y/z value field.
+    pub field: WidgetId,
+    /// The value-mode segmented control.
+    pub mode: WidgetId,
+}
+
+/// The letter a mode goes by: the same G / R / S the keyboard shortcuts use, so the
+/// badge and the key that started the session agree.
+pub fn mode_tag(mode: GizmoMode) -> &'static str {
+    match mode {
+        GizmoMode::Translate => "G",
+        GizmoMode::Rotate => "R",
+        GizmoMode::Scale => "S",
+    }
+}
+
+/// A badge showing which mode the gizmo is in. Refresh it with [`set_mode_badge`]
+/// when the mode changes.
+pub fn mode_badge(id: WidgetId, mode: GizmoMode) -> Widget {
+    Widget::new(
+        id,
+        WidgetKind::Badge(Badge::new(mode_tag(mode), Paint::role(roles::ACCENT))),
+    )
+    .with_style(Style {
+        font_size: Metric::px(READOUT_BADGE_FONT),
+        ..Style::default()
+    })
+}
+
+/// Set the mode badge's letter, finding it under `root` by id. A no-op if the id is
+/// missing or is not a badge.
+pub fn set_mode_badge(root: &mut Widget, id: WidgetId, mode: GizmoMode) {
+    if let Some(widget) = root.find_mut(id) {
+        if let WidgetKind::Badge(badge) = &mut widget.kind {
+            badge.label = mode_tag(mode).to_string();
+        }
+    }
+}
 
 /// An object's pose in world space, as plain arrays, for a readout that shows real
 /// values rather than a delta. `rotation` is a quaternion in `[x, y, z, w]` order.
@@ -179,20 +230,23 @@ pub fn value_mode_from_index(index: u32) -> ValueMode {
 /// Colours resolve against the active theme (surface, text), so the panel matches
 /// the surrounding UI. Toggle whether it is shown with
 /// [`GizmoTool::show_readout`](super::widget::GizmoTool::show_readout).
-pub fn readout_panel(
-    panel_id: WidgetId,
-    field_id: WidgetId,
-    mode_id: WidgetId,
-    value_mode: ValueMode,
-) -> Widget {
-    let field = readout_field(field_id);
-    let mode = value_mode_segmented(mode_id, value_mode).with_style(Style {
+pub fn readout_panel(ids: ReadoutIds, mode: GizmoMode, value_mode: ValueMode) -> Widget {
+    // The badge sits beside the values, so the row says what is being changed as well as
+    // by how much.
+    let row = Widget::new(ids.row, WidgetKind::Panel)
+        .with_layout(Layout::Stack {
+            axis: Axis::Horizontal,
+            spacing: READOUT_SPACING,
+            align: Align::Centre,
+        })
+        .with_children([mode_badge(ids.badge, mode), readout_field(ids.field)]);
+    let values = value_mode_segmented(ids.mode, value_mode).with_style(Style {
         font_size: Metric::px(READOUT_SEGMENTED_FONT),
         foreground: Paint::role(roles::TEXT),
         ..Style::default()
     });
 
-    Widget::new(panel_id, WidgetKind::Panel)
+    Widget::new(ids.panel, WidgetKind::Panel)
         .with_style(Style {
             background: Paint::role_alpha(roles::SURFACE, 0.95),
             foreground: Paint::role(roles::TEXT),
@@ -208,7 +262,7 @@ pub fn readout_panel(
             spacing: READOUT_SPACING,
             align: Align::Centre,
         })
-        .with_children([field, mode])
+        .with_children([row, values])
 }
 
 #[cfg(test)]
@@ -309,6 +363,48 @@ mod tests {
         let pose = ObjectPose::from_matrix(m);
         assert_eq!(pose.translation, [1.0, 2.0, 3.0]);
         assert_eq!(pose.scale, [2.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn the_badge_names_the_mode_by_its_shortcut_letter() {
+        assert_eq!(mode_tag(GizmoMode::Translate), "G");
+        assert_eq!(mode_tag(GizmoMode::Rotate), "R");
+        assert_eq!(mode_tag(GizmoMode::Scale), "S");
+    }
+
+    #[test]
+    fn the_panel_carries_a_badge_that_follows_the_mode() {
+        let ids = ReadoutIds { panel: 1, row: 2, badge: 3, field: 4, mode: 5 };
+        let mut panel = readout_panel(ids, GizmoMode::Translate, ValueMode::Relative);
+
+        let label = |w: &Widget| match &w.find(3).expect("the badge is in the panel").kind {
+            WidgetKind::Badge(b) => b.label.clone(),
+            other => panic!("expected a badge, got {other:?}"),
+        };
+        assert_eq!(label(&panel), "G");
+
+        set_mode_badge(&mut panel, 3, GizmoMode::Scale);
+        assert_eq!(label(&panel), "S", "the badge follows the tool's mode");
+    }
+
+    #[test]
+    fn every_widget_in_the_panel_has_its_own_id() {
+        // The panel builds a row of its own, so the host names that id too: a repeat
+        // would collide in the layout's rect map.
+        let ids = ReadoutIds { panel: 1, row: 2, badge: 3, field: 4, mode: 5 };
+        let panel = readout_panel(ids, GizmoMode::Rotate, ValueMode::Objective);
+        let mut seen = Vec::new();
+        fn walk(w: &Widget, seen: &mut Vec<WidgetId>) {
+            seen.push(w.id);
+            for child in &w.children {
+                walk(child, seen);
+            }
+        }
+        walk(&panel, &mut seen);
+        let mut sorted = seen.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), seen.len(), "ids repeat: {seen:?}");
     }
 
     #[test]
