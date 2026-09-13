@@ -11,6 +11,8 @@
 //! only bridges them to the toolkit. Drag a handle to move the cube; drag empty
 //! space to orbit; a click on the panel neither orbits nor moves the cube. The
 //! pointer reads as an open hand over a handle and a closed one while dragging it.
+//! The readout counts the drag in relative mode and reads the cube's own world
+//! position, rotation, or scale in objective mode.
 //! Press G, R, or S to start a keyboard move / rotate / scale session; Tab or Q
 //! cycles the gizmo mode, backtick toggles relative / objective, H hides the
 //! readout.
@@ -37,8 +39,8 @@ use viewport_lib_ui::{
 
 use viewport_lib_gizmo::{GizmoMode, ValueMode};
 use viewport_lib_gizmo::ui::{
-    GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, readout_panel, readout_values, set_readout,
-    value_mode_from_index, value_mode_index,
+    GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, ObjectPose, readout_panel, readout_values_in,
+    set_readout, value_mode_from_index, value_mode_index,
 };
 
 // Widget ids in the screen.
@@ -319,8 +321,15 @@ fn main() {
                 }
             }
 
-            // Refresh the readout and keep the segmented in sync with the tool.
-            set_readout(&mut screen.root, READOUT, readout_values(tool.mode(), last_delta));
+            // Refresh the readout and keep the segmented in sync with the tool. Relative
+            // mode counts the drag; objective reads the cube's own world values, so the
+            // field needs the pose the host is holding.
+            let pose = ObjectPose::from_matrix(*current);
+            set_readout(
+                &mut screen.root,
+                READOUT,
+                readout_values_in(tool.mode(), last_delta, tool.value_mode(), &pose),
+            );
             if let Some(w) = screen.root.find_mut(MODE_SEG) {
                 if let WidgetKind::Segmented { selected, .. } = &mut w.kind {
                     *selected = value_mode_index(tool.value_mode());
