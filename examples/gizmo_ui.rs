@@ -32,9 +32,10 @@ use vpl::{
 };
 
 use viewport_lib_ui::{
-    Anchor, Colour, InputTranslator, Layout, NoData, NoSource, Scroll, Screen, ShapedTextMeasurer,
-    Theme, ThemeMode, UiEvent, UiState, Value, Visibility, Widget, WidgetKind, WidgetRegistry,
-    custom_output, expand_customs, extend_frame, render_customs, roles, serde_json, theme_resolve,
+    Anchor, Colour, Cursor, InputTranslator, Layout, NoData, NoSource, Scroll, Screen,
+    ShapedTextMeasurer, Theme, ThemeMode, UiEvent, UiState, Value, Visibility, Widget, WidgetKind,
+    WidgetRegistry, custom_output, expand_customs, extend_frame, map_cursor, render_customs, roles,
+    serde_json, theme_resolve,
 };
 
 use viewport_lib_gizmo::{GizmoMode, ValueMode};
@@ -141,6 +142,9 @@ struct App {
     current: Mat4,
     last_delta: GizmoDelta,
     grabbing: bool,
+    /// The shape the UI asked for last frame, applied in the render callback (the
+    /// input callback has no window to set it on).
+    cursor: Cursor,
 }
 
 fn main() {
@@ -162,6 +166,7 @@ fn main() {
         current: Mat4::IDENTITY,
         last_delta: GizmoDelta::default(),
         grabbing: false,
+        cursor: Cursor::Default,
     }));
 
     ViewportApp::new(
@@ -275,6 +280,7 @@ fn main() {
                 current,
                 last_delta,
                 grabbing,
+                cursor,
                 ..
             } = &mut *a;
 
@@ -348,6 +354,10 @@ fn main() {
             // Suppress orbit next frame whenever the UI took the pointer (a hovered
             // handle, a live drag, or a click on the panel).
             *grabbing = result.capture.pointer;
+            // The shape the UI wants for what the pointer is over: the gizmo's open hand
+            // over a handle, the closed one while dragging, whatever a control under it
+            // asks for otherwise. Applied in the render callback, which has the window.
+            *cursor = ui.cursor();
         }
     })
     .run({
@@ -366,6 +376,7 @@ fn main() {
 
             let measure = ShapedTextMeasurer::new(ctx.resources(), no_fonts);
             let a = app.borrow();
+            ctx.set_cursor(map_cursor(a.cursor));
             let composed = expand_customs(&a.screen, &a.registry, &NoSource, &NoData, &measure);
             let themed = theme_resolve(&composed, &a.theme);
             let list = render_customs(

@@ -461,7 +461,7 @@ fn gizmo_result(result: ManipResult) -> Option<GizmoResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use viewport_lib_ui_core::{CustomState, NoData, NoSource};
+    use viewport_lib_ui_core::{ApproxMeasure, CustomState, NoData, NoSource};
 
     const VP: [f32; 2] = [1280.0, 720.0];
 
@@ -634,6 +634,55 @@ mod tests {
             &Input::at(cursor.to_array()).press(),
         );
         assert_eq!(dragging.cursor, Some(Cursor::Grabbing));
+    }
+
+    #[test]
+    fn the_toolkit_reports_the_grab_cursor_for_a_hovered_handle() {
+        // The whole chain a host reads: the walk hovers the pane, the handler names the
+        // shape for the handle under the pointer, and `UiState::cursor` reports it. A
+        // host that applies that to its window gets the hand over the handle.
+        use viewport_lib_ui_core::{Cursor, UiState, WidgetRegistry};
+        use viewport_lib_ui_document::{Anchor, Layout, Screen, Widget, WidgetKind};
+
+        let tool = std::sync::Arc::new(GizmoTool::new());
+        let mut registry = WidgetRegistry::new();
+        registry.register(GIZMO_KIND, tool.clone());
+        let mut screen = Screen::new(
+            Widget::new(0, WidgetKind::Panel)
+                .with_layout(Layout::Free)
+                .with_child(
+                    Widget::custom(1, GIZMO_KIND, serde_json::Value::Null)
+                        .placed(Anchor::TopLeft, [0.0, 0.0], VP),
+                ),
+        );
+
+        let cam = camera();
+        let mut ui = UiState::new();
+        let mut frame = |input: Input| {
+            tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
+            ui.update_customs(
+                &mut screen,
+                &input,
+                VP,
+                &ApproxMeasure::default(),
+                &registry,
+                &NoSource,
+                &NoData,
+            );
+            ui.cursor()
+        };
+
+        let on_handle = x_handle_cursor(&cam);
+        assert_eq!(
+            frame(Input::at(on_handle.to_array())),
+            Cursor::Grab,
+            "an open hand over the handle"
+        );
+        assert_eq!(
+            frame(Input::at(on_handle.to_array()).press()),
+            Cursor::Grabbing,
+            "and a closed one once it is taken"
+        );
     }
 
     #[test]
