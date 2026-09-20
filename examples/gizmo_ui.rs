@@ -407,7 +407,9 @@ fn main() {
 
             let measure = ShapedTextMeasurer::new(ctx.resources(), no_fonts);
             let a = app.borrow();
-            ctx.set_cursor(map_cursor(a.cursor));
+            if let Some(shape) = map_cursor(&a.cursor) {
+                ctx.set_cursor(shape);
+            }
             let composed = expand_customs(&a.screen, &a.registry, &NoSource, &NoData, &measure);
             let themed = theme_resolve(&composed, &a.theme);
             let list = render_customs(

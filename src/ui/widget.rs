@@ -360,7 +360,8 @@ impl CustomWidget for GizmoTool {
         // pane sits.
         let [ox, oy] = rect.min;
         for shape in &mut shapes {
-            shape.position = [shape.position[0] + ox, shape.position[1] + oy];
+            let t = shape.transform.translate;
+            shape.transform.translate = [t[0] + ox, t[1] + oy];
         }
         for line in &mut polylines {
             for point in &mut line.points {

@@ -17,9 +17,10 @@ use glam::{Mat4, Vec2, Vec3};
 
 use super::style::{GizmoStyle, RotationHandles};
 use crate::maths::gizmo::{GizmoAxis, GizmoMode};
+use viewport_lib_types::colour::Colour;
 use viewport_lib_types::overlay::{
-    LabelItem, OverlayAnchor, OverlayFill, OverlayPolylineItem, OverlayShape, OverlayShapeItem,
-    TriangleDirection,
+    LabelItem, OverlayFill, OverlayOrigin, OverlayPolylineItem, OverlayShape, OverlayShapeItem,
+    ShadowLayer, TriangleDirection,
 };
 
 /// Build the numeric-readout label for an active G/R/S session.
@@ -28,7 +29,7 @@ use viewport_lib_types::overlay::{
 /// [`GizmoDriver::numeric_display`](crate::controller::GizmoDriver::numeric_display)
 /// (or [`ManipulationState::numeric_display`](crate::controller::ManipulationState)).
 /// Placement, alignment, offset, size, and colour come from the `label_*` fields
-/// of [`GizmoStyle`]. When the style anchor is `OverlayAnchor::World(_)` the
+/// of [`GizmoStyle`]. When the style anchor is `OverlayOrigin::World(_)` the
 /// readout is anchored at `gizmo_center`, so it follows the gizmo and is skipped
 /// automatically when the centre is off-screen; a `Viewport` anchor pins it to a
 /// screen edge instead. Push the result into the overlay frame's `labels`. A
@@ -38,20 +39,29 @@ pub fn build_numeric_label(style: &GizmoStyle, text: &str, gizmo_center: Vec3) -
     // A World anchor follows the gizmo: swap the style's placeholder position for
     // the live centre. A Viewport anchor is used as-is.
     let anchor = match style.label_anchor {
-        OverlayAnchor::World(_) => {
-            OverlayAnchor::World([gizmo_center.x, gizmo_center.y, gizmo_center.z])
+        OverlayOrigin::World(_) => {
+            OverlayOrigin::World([gizmo_center.x, gizmo_center.y, gizmo_center.z])
         }
         other => other,
     };
-    LabelItem::new(text)
+    let mut label = LabelItem::new(text)
         .with_anchor(anchor)
         .with_align_x(style.label_align_x)
         .with_align_y(style.label_align_y)
         .with_position(style.label_offset)
         .with_font_size(style.label_size)
         .with_colour(style.label_colour)
-        .with_background(style.label_background)
-        .with_z_order(style.z_base + 25_000)
+        .with_z_order(style.z_base + 25_000);
+    // The backing panel a label used to draw itself is gone. A contour keeps the readout
+    // legible over an unpredictable scene, which is what the panel was there for, and it
+    // needs no measured box to sit behind.
+    if style.label_contour > 0.0 {
+        label = label.with_shadows(vec![ShadowLayer::outline(
+            Colour::srgb(0.0, 0.0, 0.0, 1.0),
+            style.label_contour,
+        )]);
+    }
+    label
 }
 
 /// Collects the overlay primitives produced for one gizmo.
@@ -522,7 +532,7 @@ mod tests {
         );
         // Three plane quads + one centre handle are closed, filled polylines.
         assert_eq!(polys.len(), 4, "expected 3 plane handles + 1 centre quad");
-        assert!(polys.iter().all(|p| p.closed && p.fill.is_some()));
+        assert!(polys.iter().all(|p| p.closed && p.style.fill.is_set()));
     }
 
     #[test]
@@ -598,7 +608,7 @@ mod tests {
                 &mut polys,
             );
             // First shape is the X-axis shaft; its gradient start encodes the colour.
-            match &shapes[0].fill {
+            match &shapes[0].style.fill {
                 OverlayFill::LinearGradient { start_colour, .. } => *start_colour,
                 _ => panic!("shaft should use a linear gradient"),
             }

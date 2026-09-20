@@ -18,7 +18,7 @@ use viewport_lib_types::overlay::{
     PolylineCap, TriangleDirection,
 };
 
-use viewport_lib_ui_core::{DrawBorder, DrawCommand, DrawFill, DrawList, DrawShadow, DrawStop, Rect};
+use viewport_lib_ui_core::{DrawBorder, DrawCommand, DrawFill, DrawList, DrawStop, Rect};
 use viewport_lib_ui_document::{Colour, LineCap, LineJoin, ShapeDir, WidgetShape};
 
 /// Convert one gizmo shape (an arrow shaft or a cone head) into a draw command and
@@ -26,16 +26,15 @@ use viewport_lib_ui_document::{Colour, LineCap, LineJoin, ShapeDir, WidgetShape}
 /// the direct-submission path: a higher value draws on top.
 pub fn shape_command(item: &OverlayShapeItem) -> (DrawCommand, i32) {
     let command = DrawCommand::Shape {
-        rect: Rect::new(item.position, item.size),
+        rect: Rect::new(item.transform.translate, item.size),
         shape: widget_shape(&item.shape),
-        fill: draw_fill(&item.fill),
+        fill: draw_fill(&item.style.fill),
         border: DrawBorder::default(),
-        shadow: DrawShadow::default(),
         shadows: Vec::new(),
         inner_shadows: Vec::new(),
         // Overlay rotation is radians about the box centre; the toolkit takes
         // degrees, and a centre pivot is `None`.
-        rotation_deg: item.rotation.to_degrees(),
+        rotation_deg: item.transform.rotation.to_degrees(),
         rotation_pivot: None,
         backdrop_blur: 0.0,
         animations: None,
@@ -46,17 +45,19 @@ pub fn shape_command(item: &OverlayShapeItem) -> (DrawCommand, i32) {
 /// Convert one gizmo polyline (a ring, plane quad, cube face, or centre handle)
 /// into a draw command and its within-layer depth.
 pub fn polyline_command(item: &OverlayPolylineItem) -> (DrawCommand, i32) {
+    // A polyline's stroke is one field now, and `None` is a fill-only path.
+    let stroke = item.stroke.as_ref();
     let command = DrawCommand::Polyline {
         points: item.points.clone(),
-        width: item.thickness,
-        colour: arr(item.colour),
-        join: line_join(item.join),
-        cap: line_cap(item.cap),
+        width: stroke.map_or(0.0, |s| s.width),
+        colour: stroke.map_or([0.0; 4], |s| arr(s.colour)),
+        join: line_join(stroke.map_or(OverlayJoin::Mitre, |s| s.join)),
+        cap: line_cap(stroke.map_or(PolylineCap::Butt, |s| s.cap)),
         closed: item.closed,
         // The toolkit fills a closed polyline with a solid colour. The gizmo only
         // solid-fills its polylines; a gradient fill would fall back to its first
         // colour, which the gizmo never hits.
-        fill: item.fill.as_ref().map(fill_colour),
+        fill: fill_colour_of(&item.style.fill),
     };
     (command, item.z_order)
 }
@@ -183,6 +184,13 @@ fn draw_fill(fill: &OverlayFill) -> DrawFill {
 }
 
 /// The solid interior colour for a closed polyline's fill.
+/// The solid colour a closed gizmo polyline is filled with, or `None` when it has no fill.
+/// A fill is no longer optional on the item: an unfilled one carries a fully transparent
+/// solid, which `is_set` is how you ask about.
+fn fill_colour_of(fill: &OverlayFill) -> Option<Colour> {
+    fill.is_set().then(|| fill_colour(fill))
+}
+
 fn fill_colour(fill: &OverlayFill) -> Colour {
     match fill {
         OverlayFill::Solid(colour) => arr(*colour),

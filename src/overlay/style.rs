@@ -12,7 +12,7 @@
 //! fields in a custom style changes only what is drawn, not what is picked.
 
 use crate::maths::gizmo::{self, GizmoAxis};
-use viewport_lib_types::overlay::{AnchorX, AnchorY, OverlayAnchor};
+use viewport_lib_types::overlay::{Alignment, AnchorX, AnchorY, OverlayOrigin};
 
 /// Base and hover colours for one axis (RGBA, alpha significant).
 #[derive(Clone, Copy, Debug)]
@@ -121,10 +121,10 @@ pub struct GizmoStyle {
 
     /// Where the numeric readout sits (see
     /// [`build_numeric_label`](super::builder::build_numeric_label)).
-    /// `OverlayAnchor::World(_)` follows the gizmo centre (the placeholder
+    /// `OverlayOrigin::World(_)` follows the gizmo centre (the placeholder
     /// position is replaced with the live centre at build time);
-    /// `OverlayAnchor::Viewport { .. }` pins it to a screen edge or corner.
-    pub label_anchor: OverlayAnchor,
+    /// `OverlayOrigin::Viewport(_)` pins it to a screen edge or corner.
+    pub label_anchor: OverlayOrigin,
     /// Horizontal alignment of the readout box relative to its anchor.
     pub label_align_x: AnchorX,
     /// Vertical alignment of the readout box relative to its anchor.
@@ -135,8 +135,12 @@ pub struct GizmoStyle {
     pub label_size: f32,
     /// Numeric-readout colour.
     pub label_colour: [f32; 4],
-    /// Draw a background behind the numeric readout for legibility.
-    pub label_background: bool,
+    /// Width of a dark contour hugging the readout's glyphs, in pixels. `0.0` draws none.
+    ///
+    /// The readout floats over whatever the scene happens to be, so a colour that reads
+    /// against one background fails against another. A contour holds contrast against
+    /// both, which a flat backing panel behind the text does less well at this size.
+    pub label_contour: f32,
 }
 
 impl Default for GizmoStyle {
@@ -199,16 +203,16 @@ impl Default for GizmoStyle {
 
             // Bottom-centre of the viewport by default, lifted off the edge. Set
             // a World anchor instead to float the readout at the gizmo.
-            label_anchor: OverlayAnchor::Viewport {
-                x: AnchorX::Middle,
-                y: AnchorY::Bottom,
-            },
+            label_anchor: OverlayOrigin::Viewport(Alignment::new(
+                AnchorX::Middle,
+                AnchorY::Bottom,
+            )),
             label_align_x: AnchorX::Middle,
             label_align_y: AnchorY::Bottom,
             label_offset: [0.0, -24.0],
             label_size: 18.0,
             label_colour: [0.95, 0.95, 0.95, 1.0],
-            label_background: true,
+            label_contour: 2.0,
         }
     }
 }
