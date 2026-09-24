@@ -93,7 +93,7 @@ fn main() -> eframe::Result {
 
             Ok(Box::new(App {
                 session,
-                orbit: OrbitCameraController::viewport_all(),
+                orbit: OrbitCameraController::new_stateless(),
                 node,
                 base: Mat4::IDENTITY,
                 current: Mat4::IDENTITY,

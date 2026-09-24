@@ -15,8 +15,8 @@ use std::rc::Rc;
 use glam::{Mat4, Vec2, Vec3};
 use viewport_lib as vpl;
 use vpl::{
-    AppConfig, ButtonState, KeyCode, Material, NodeId, OrbitCameraController, ViewportApp,
-    ViewportContext, ViewportEvent, primitives,
+    AppConfig, BindingPreset, ButtonState, KeyCode, Material, NodeId, OrbitCameraController,
+    ViewportApp, ViewportContext, ViewportEvent, ViewportInput, primitives,
 };
 
 use viewport_lib_gizmo::{
@@ -99,10 +99,15 @@ fn main() {
     // Own navigation so orbit can be suppressed while a handle is grabbed.
     .with_input({
         let state = state.clone();
-        let mut orbit = OrbitCameraController::viewport_all();
+        let mut orbit = OrbitCameraController::new_stateless();
+        let mut input = ViewportInput::from_preset(BindingPreset::Default);
         move |ictx| {
             let size = ictx.viewport_size();
-            orbit.begin_frame(ViewportContext {
+            // The size stays on the controller, which needs it to turn a pan in pixels
+            // into one in world units; the events go to the input, which owns the scheme
+            // that reads them.
+            orbit.set_viewport_size(size);
+            input.begin_frame(ViewportContext {
                 hovered: true,
                 focused: true,
                 viewport_size: size,
@@ -127,10 +132,11 @@ fn main() {
                 }
                 ictx.forward(ev.clone());
                 if !grabbing {
-                    orbit.push_event(ev);
+                    input.push_event(ev);
                 }
             }
-            orbit.apply_to_camera(ictx.camera_mut());
+            let actions = input.resolve();
+            orbit.apply(ictx.camera_mut(), &actions);
         }
     })
     .run({
