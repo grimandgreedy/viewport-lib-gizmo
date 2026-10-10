@@ -50,7 +50,7 @@ pub fn build_numeric_label(style: &GizmoStyle, text: &str, gizmo_center: Vec3) -
         .with_align_y(style.label_align_y)
         .with_position(style.label_offset)
         .with_font_size(style.label_size)
-        .with_colour(Colour::from_linear_array(style.label_colour))
+        .with_colour(style.label_colour)
         .with_z_order(style.z_base + 25_000);
     // The backing panel a label used to draw itself is gone. A contour keeps the readout
     // legible over an unpredictable scene, which is what the panel was there for, and it
@@ -165,7 +165,7 @@ pub fn build_gizmo_overlays(
                         c - a * s + b * s,
                     ];
                     let col = style.plane_colour(axis, hovered);
-                    let stroke = [col[0], col[1], col[2], 1.0];
+                    let stroke = col.with_alpha(1.0);
                     push_quad(
                         &mut out,
                         view_proj,
@@ -259,13 +259,14 @@ fn centred(shape: OverlayShape, centre: Vec2, size: [f32; 2]) -> OverlayShapeIte
     OverlayShapeItem::new(shape, tl, size)
 }
 
-fn scale_rgb(c: [f32; 4], k: f32) -> [f32; 4] {
-    [
-        (c[0] * k).clamp(0.0, 1.0),
-        (c[1] * k).clamp(0.0, 1.0),
-        (c[2] * k).clamp(0.0, 1.0),
-        c[3],
-    ]
+fn scale_rgb(c: Colour, k: f32) -> Colour {
+    let [r, g, b, a]: [f32; 4] = c.into();
+    Colour::linear(
+        (r * k).clamp(0.0, 1.0),
+        (g * k).clamp(0.0, 1.0),
+        (b * k).clamp(0.0, 1.0),
+        a,
+    )
 }
 
 /// Project four world corners into a closed, filled polyline (a general quad).
@@ -274,8 +275,8 @@ fn push_quad(
     vp: Mat4,
     size: [f32; 2],
     corners_w: [Vec3; 4],
-    fill: [f32; 4],
-    stroke: [f32; 4],
+    fill: Colour,
+    stroke: Colour,
     thickness: f32,
     z: i32,
 ) {
@@ -289,8 +290,8 @@ fn push_quad(
     out.polylines.push(
         OverlayPolylineItem::new(pts)
             .with_closed(true)
-            .with_fill(OverlayFill::Solid(Colour::from_linear_array(fill)))
-            .with_colour(Colour::from_linear_array(stroke))
+            .with_fill(OverlayFill::Solid(fill))
+            .with_colour(stroke)
             .with_thickness(thickness)
             .with_z_order(z),
     );
@@ -312,7 +313,7 @@ fn build_arrow(
     origin_px: Vec2,
     dir: Vec3,
     ws: f32,
-    colour: [f32; 4],
+    colour: Colour,
     cube_tip: bool,
 ) {
     let shaft_tip_w = origin_w + dir * (ws * style.shaft_length);
@@ -346,8 +347,8 @@ fn build_arrow(
             )
             .with_rotation(shaft_draw.y.atan2(shaft_draw.x))
             .with_fill(OverlayFill::LinearGradient {
-                start_colour: Colour::from_linear_array(scale_rgb(colour, style.shaft_grad_hi)),
-                end_colour: Colour::from_linear_array(scale_rgb(colour, style.shaft_grad_lo)),
+                start_colour: scale_rgb(colour, style.shaft_grad_hi),
+                end_colour: scale_rgb(colour, style.shaft_grad_lo),
                 angle: 0.0,
             })
             .with_z_order(z),
@@ -381,14 +382,8 @@ fn build_arrow(
             centred(OverlayShape::Ellipse, shaft_tip_px, [minor, head_w])
                 .with_rotation(along)
                 .with_fill(OverlayFill::RadialGradient {
-                    centre_colour: Colour::from_linear_array(scale_rgb(
-                        colour,
-                        style.cone_base_grad_hi,
-                    )),
-                    edge_colour: Colour::from_linear_array(scale_rgb(
-                        colour,
-                        style.cone_base_grad_lo,
-                    )),
+                    centre_colour: scale_rgb(colour, style.cone_base_grad_hi),
+                    edge_colour: scale_rgb(colour, style.cone_base_grad_lo),
                 })
                 .with_z_order(z + 1),
         );
@@ -404,14 +399,8 @@ fn build_arrow(
                 )
                 .with_rotation(head_vec.x.atan2(-head_vec.y))
                 .with_fill(OverlayFill::LinearGradient {
-                    start_colour: Colour::from_linear_array(scale_rgb(
-                        colour,
-                        style.cone_side_grad_hi,
-                    )),
-                    end_colour: Colour::from_linear_array(scale_rgb(
-                        colour,
-                        style.cone_side_grad_lo,
-                    )),
+                    start_colour: scale_rgb(colour, style.cone_side_grad_hi),
+                    end_colour: scale_rgb(colour, style.cone_side_grad_lo),
                     angle: 0.0,
                 })
                 .with_z_order(z + 2),
@@ -431,7 +420,7 @@ fn build_cube_tip(
     tip_base_w: Vec3,
     dir: Vec3,
     ws: f32,
-    colour: [f32; 4],
+    colour: Colour,
     z: i32,
 ) {
     let h = style.cube_half * ws;
@@ -482,7 +471,7 @@ fn build_ring(
     origin_w: Vec3,
     dir: Vec3,
     ws: f32,
-    colour: [f32; 4],
+    colour: Colour,
 ) {
     let (u, v) = basis(dir);
     let r = style.ring_radius * ws;
@@ -506,7 +495,7 @@ fn build_ring(
     out.polylines.push(
         OverlayPolylineItem::new(pts)
             .with_closed(true)
-            .with_colour(Colour::from_linear_array(colour))
+            .with_colour(colour)
             .with_thickness(thick)
             .with_z_order(z),
     );

@@ -52,17 +52,20 @@ fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4, values: ValueMod
 /// A colour picker for one axis: edits the base colour and derives the hover
 /// colour from it.
 fn axis_colour_picker(ui: &mut egui::Ui, label: &str, col: &mut AxisColour) {
-    let mut rgb = [col.base[0], col.base[1], col.base[2]];
+    // egui's RGB picker works in linear RGB, as the style does.
+    let [r, g, b, a]: [f32; 4] = col.base.into();
+    let mut rgb = [r, g, b];
     ui.horizontal(|ui| {
         ui.label(label);
         if ui.color_edit_button_rgb(&mut rgb).changed() {
-            col.base = [rgb[0], rgb[1], rgb[2], col.base[3]];
-            col.hover = [
-                (rgb[0] * 1.3).min(1.0),
-                (rgb[1] * 1.3).min(1.0),
-                (rgb[2] * 1.3).min(1.0),
-                col.base[3],
-            ];
+            let [r, g, b] = rgb;
+            col.base = Colour::linear(r, g, b, a);
+            col.hover = Colour::linear(
+                (r * 1.3).min(1.0),
+                (g * 1.3).min(1.0),
+                (b * 1.3).min(1.0),
+                a,
+            );
         }
     });
 }

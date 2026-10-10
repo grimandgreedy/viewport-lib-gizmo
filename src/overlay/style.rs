@@ -12,18 +12,16 @@
 //! fields in a custom style changes only what is drawn, not what is picked.
 
 use crate::maths::gizmo::{self, GizmoAxis};
+use viewport_lib_types::colour::Colour;
 use viewport_lib_types::overlay::{Alignment, AnchorX, AnchorY, OverlayOrigin};
 
-/// Base and hover colours for one axis, as linear RGBA (alpha significant).
-///
-/// Every colour in [`GizmoStyle`] is linear, as the renderer draws it. Convert a
-/// colour from a picker or a hex code with `Colour::srgb(..).into()` first.
+/// Base and hover colours for one axis (alpha significant).
 #[derive(Clone, Copy, Debug)]
 pub struct AxisColour {
     /// Colour when the axis is not hovered.
-    pub base: [f32; 4],
+    pub base: Colour,
     /// Colour when the axis is hovered.
-    pub hover: [f32; 4],
+    pub hover: Colour,
 }
 
 /// How the rotation handles are drawn.
@@ -114,7 +112,7 @@ pub struct GizmoStyle {
     /// Drawn half-extent of the screen-space centre handle, in gizmo-local units.
     pub screen_handle_size: f32,
     /// Centre handle outline colour.
-    pub screen_handle_stroke: [f32; 4],
+    pub screen_handle_stroke: Colour,
     /// Centre handle outline thickness in pixels.
     pub screen_stroke_width: f32,
 
@@ -137,7 +135,7 @@ pub struct GizmoStyle {
     /// Numeric-readout font size.
     pub label_size: f32,
     /// Numeric-readout colour.
-    pub label_colour: [f32; 4],
+    pub label_colour: Colour,
     /// Width of a dark contour hugging the readout's glyphs, in pixels. `0.0` draws none.
     ///
     /// The readout floats over whatever the scene happens to be, so a colour that reads
@@ -150,20 +148,20 @@ impl Default for GizmoStyle {
     fn default() -> Self {
         Self {
             x: AxisColour {
-                base: [0.75, 0.06, 0.07, 1.0],
-                hover: [0.975, 0.078, 0.091, 1.0],
+                base: Colour::linear(0.75, 0.06, 0.07, 1.0),
+                hover: Colour::linear(0.975, 0.078, 0.091, 1.0),
             },
             y: AxisColour {
-                base: [0.18, 0.55, 0.03, 1.0],
-                hover: [0.234, 0.715, 0.039, 1.0],
+                base: Colour::linear(0.18, 0.55, 0.03, 1.0),
+                hover: Colour::linear(0.234, 0.715, 0.039, 1.0),
             },
             z: AxisColour {
-                base: [0.05, 0.27, 0.72, 1.0],
-                hover: [0.065, 0.351, 0.936, 1.0],
+                base: Colour::linear(0.05, 0.27, 0.72, 1.0),
+                hover: Colour::linear(0.065, 0.351, 0.936, 1.0),
             },
             screen: AxisColour {
-                base: [0.9, 0.9, 0.9, 0.6],
-                hover: [1.0, 1.0, 1.0, 0.8],
+                base: Colour::linear(0.9, 0.9, 0.9, 0.6),
+                hover: Colour::linear(1.0, 1.0, 1.0, 0.8),
             },
             plane_alpha: 0.3,
             plane_alpha_hover: 0.5,
@@ -199,7 +197,7 @@ impl Default for GizmoStyle {
             ring_segments: 48,
 
             screen_handle_size: gizmo::SCREEN_HANDLE_SIZE,
-            screen_handle_stroke: [1.0, 1.0, 1.0, 1.0],
+            screen_handle_stroke: Colour::WHITE,
             screen_stroke_width: 1.0,
 
             z_base: 0,
@@ -211,7 +209,7 @@ impl Default for GizmoStyle {
             label_align_y: AnchorY::Bottom,
             label_offset: [0.0, -24.0],
             label_size: 18.0,
-            label_colour: [0.95, 0.95, 0.95, 1.0],
+            label_colour: Colour::linear(0.95, 0.95, 0.95, 1.0),
             label_contour: 2.0,
         }
     }
@@ -261,7 +259,7 @@ impl GizmoStyle {
     }
 
     /// Base or hover colour for an axis, given the hovered axis.
-    pub fn axis_colour(&self, axis: GizmoAxis, hovered: GizmoAxis) -> [f32; 4] {
+    pub fn axis_colour(&self, axis: GizmoAxis, hovered: GizmoAxis) -> Colour {
         let is_hovered = axis == hovered;
         let pick = |c: &AxisColour| if is_hovered { c.hover } else { c.base };
         match axis {
@@ -269,14 +267,14 @@ impl GizmoStyle {
             GizmoAxis::Y => pick(&self.y),
             GizmoAxis::Z => pick(&self.z),
             GizmoAxis::Screen => pick(&self.screen),
-            _ => [1.0; 4],
+            _ => Colour::WHITE,
         }
     }
 
     /// Colour for a plane handle, blending the two axis base colours. On hover the
     /// blend is brightened by [`plane_hover_brightness`](Self::plane_hover_brightness)
     /// in addition to the alpha bump.
-    pub fn plane_colour(&self, axis: GizmoAxis, hovered: GizmoAxis) -> [f32; 4] {
+    pub fn plane_colour(&self, axis: GizmoAxis, hovered: GizmoAxis) -> Colour {
         let is_hovered = axis == hovered;
         let alpha = if is_hovered {
             self.plane_alpha_hover
@@ -292,14 +290,15 @@ impl GizmoStyle {
             GizmoAxis::XY => (self.x.base, self.y.base),
             GizmoAxis::XZ => (self.x.base, self.z.base),
             GizmoAxis::YZ => (self.y.base, self.z.base),
-            _ => return [1.0, 1.0, 1.0, alpha],
+            _ => return Colour::WHITE.with_alpha(alpha),
         };
-        [
-            ((c1[0] + c2[0]) * 0.5 * brightness).min(1.0),
-            ((c1[1] + c2[1]) * 0.5 * brightness).min(1.0),
-            ((c1[2] + c2[2]) * 0.5 * brightness).min(1.0),
+        let [r, g, b, _]: [f32; 4] = c1.lerp(c2, 0.5).into();
+        Colour::linear(
+            (r * brightness).min(1.0),
+            (g * brightness).min(1.0),
+            (b * brightness).min(1.0),
             alpha,
-        ]
+        )
     }
 }
 
@@ -312,25 +311,25 @@ mod tests {
         let s = GizmoStyle::default();
         assert_eq!(
             s.axis_colour(GizmoAxis::X, GizmoAxis::None),
-            [0.75, 0.06, 0.07, 1.0]
+            Colour::linear(0.75, 0.06, 0.07, 1.0)
         );
         assert_eq!(
             s.axis_colour(GizmoAxis::X, GizmoAxis::X),
-            [0.975, 0.078, 0.091, 1.0]
+            Colour::linear(0.975, 0.078, 0.091, 1.0)
         );
         assert_eq!(
             s.axis_colour(GizmoAxis::Screen, GizmoAxis::None),
-            [0.9, 0.9, 0.9, 0.6]
+            Colour::linear(0.9, 0.9, 0.9, 0.6)
         );
     }
 
     #[test]
     fn default_plane_colour_blends_and_brightens_on_hover() {
         let s = GizmoStyle::default();
-        let base = s.plane_colour(GizmoAxis::XY, GizmoAxis::None);
+        let base: [f32; 4] = s.plane_colour(GizmoAxis::XY, GizmoAxis::None).into();
         assert_eq!(base[3], 0.3);
         assert!((base[0] - (0.75 + 0.18) * 0.5).abs() < 1e-6);
-        let hov = s.plane_colour(GizmoAxis::XY, GizmoAxis::XY);
+        let hov: [f32; 4] = s.plane_colour(GizmoAxis::XY, GizmoAxis::XY).into();
         assert_eq!(hov[3], 0.5);
         assert!(hov[0] > base[0], "hover brightens the blend");
     }
