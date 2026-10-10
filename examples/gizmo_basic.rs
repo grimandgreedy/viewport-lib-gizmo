@@ -15,8 +15,8 @@ use std::rc::Rc;
 use glam::{Mat4, Vec2, Vec3};
 use viewport_lib as vpl;
 use vpl::{
-    AppConfig, BindingPreset, ButtonState, KeyCode, Material, NodeId, OrbitCameraController,
-    ViewportApp, ViewportContext, ViewportEvent, ViewportInput, primitives,
+    AppConfig, BindingPreset, ButtonState, Colour, KeyCode, Material, NodeId,
+    OrbitCameraController, ViewportApp, ViewportContext, ViewportEvent, ViewportInput, primitives,
 };
 
 use viewport_lib_gizmo::{
@@ -89,7 +89,7 @@ fn main() {
             let node = session.scene_mut().add(
                 Some(cube),
                 transform,
-                Material::from_colour([0.4, 0.6, 0.9]),
+                Material::from_colour(Colour::linear_rgb(0.4, 0.6, 0.9)),
             );
             session.camera_mut().distance = 8.0;
             let mut s = state.borrow_mut();

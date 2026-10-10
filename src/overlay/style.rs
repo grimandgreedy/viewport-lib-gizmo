@@ -14,7 +14,10 @@
 use crate::maths::gizmo::{self, GizmoAxis};
 use viewport_lib_types::overlay::{Alignment, AnchorX, AnchorY, OverlayOrigin};
 
-/// Base and hover colours for one axis (RGBA, alpha significant).
+/// Base and hover colours for one axis, as linear RGBA (alpha significant).
+///
+/// Every colour in [`GizmoStyle`] is linear, as the renderer draws it. Convert a
+/// colour from a picker or a hex code with `Colour::srgb(..).into()` first.
 #[derive(Clone, Copy, Debug)]
 pub struct AxisColour {
     /// Colour when the axis is not hovered.

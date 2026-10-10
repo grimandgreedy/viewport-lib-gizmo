@@ -91,6 +91,7 @@ fn dark_theme() -> Theme {
         roles: roles_map,
         metrics: BTreeMap::new(),
         base: None,
+        density: 1.0,
     }
 }
 
@@ -204,7 +205,7 @@ fn main() {
             let node = session.scene_mut().add(
                 Some(cube),
                 transform,
-                Material::from_colour([0.4, 0.6, 0.9]),
+                Material::from_colour(vpl::Colour::linear_rgb(0.4, 0.6, 0.9)),
             );
             session.camera_mut().distance = 8.0;
             let mut a = app.borrow_mut();

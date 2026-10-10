@@ -14,7 +14,7 @@ use glam::{Mat4, Quat, Vec2, Vec3};
 use viewport_lib as vpl;
 use vpl::input::adapters::from_egui;
 use vpl::{
-    Material, Modifiers, NodeId, OrbitCameraController, ViewportContext, ViewportEvent,
+    Colour, Material, Modifiers, NodeId, OrbitCameraController, ViewportContext, ViewportEvent,
     ViewportInstance, primitives,
 };
 
@@ -87,7 +87,7 @@ fn main() -> eframe::Result {
             let node = session.scene_mut().add(
                 Some(cube),
                 Mat4::IDENTITY,
-                Material::from_colour([0.4, 0.6, 0.9]),
+                Material::from_colour(Colour::linear_rgb(0.4, 0.6, 0.9)),
             );
             session.camera_mut().distance = 8.0;
 
