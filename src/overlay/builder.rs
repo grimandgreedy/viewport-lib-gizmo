@@ -324,10 +324,10 @@ fn build_arrow(
     };
 
     let perp = perp_of(dir, forward);
-    let shaft_thick =
-        (2.0 * screen_len(vp, size, origin_w, perp, ws * style.shaft_radius)).max(style.shaft_min_px);
-    let head_w =
-        (2.0 * screen_len(vp, size, shaft_tip_w, perp, ws * style.cone_radius)).max(style.cone_head_min_px);
+    let shaft_thick = (2.0 * screen_len(vp, size, origin_w, perp, ws * style.shaft_radius))
+        .max(style.shaft_min_px);
+    let head_w = (2.0 * screen_len(vp, size, shaft_tip_w, perp, ws * style.cone_radius))
+        .max(style.cone_head_min_px);
     let z = style.z_base + ((1.0 - tip_z) * 10_000.0) as i32;
 
     let head_vec = tip_end_px - shaft_tip_px;
@@ -355,7 +355,18 @@ fn build_arrow(
     }
 
     if cube_tip {
-        build_cube_tip(out, style, vp, forward, size, shaft_tip_w, dir, ws, colour, z + 1);
+        build_cube_tip(
+            out,
+            style,
+            vp,
+            forward,
+            size,
+            shaft_tip_w,
+            dir,
+            ws,
+            colour,
+            z + 1,
+        );
     } else {
         // Cone = base disc + sides. The base is a circle in the plane
         // perpendicular to the axis, so it projects to an ellipse: a thin sliver
@@ -463,8 +474,8 @@ fn build_ring(
 ) {
     let (u, v) = basis(dir);
     let r = style.ring_radius * ws;
-    let thick =
-        (2.0 * screen_len(vp, size, origin_w, u, ws * style.ring_tube_radius)).max(style.ring_min_px);
+    let thick = (2.0 * screen_len(vp, size, origin_w, u, ws * style.ring_tube_radius))
+        .max(style.ring_min_px);
     let segments = style.ring_segments.max(3);
     let mut pts = Vec::with_capacity(segments);
     let mut depth = 0.0f32;

@@ -515,11 +515,18 @@ mod tests {
     fn to_px(camera: &Camera, world: Vec3) -> Vec2 {
         let clip = (camera.proj_matrix() * camera.view_matrix()) * world.extend(1.0);
         let ndc = clip.truncate() / clip.w;
-        Vec2::new((ndc.x * 0.5 + 0.5) * VP[0], (1.0 - (ndc.y * 0.5 + 0.5)) * VP[1])
+        Vec2::new(
+            (ndc.x * 0.5 + 0.5) * VP[0],
+            (1.0 - (ndc.y * 0.5 + 0.5)) * VP[1],
+        )
     }
 
     /// A context with the pointer on the pane, the usual case.
-    fn ctx<'a>(params: &'a serde_json::Value, src: &'a NoSource, data: &'a NoData) -> CustomCtx<'a> {
+    fn ctx<'a>(
+        params: &'a serde_json::Value,
+        src: &'a NoSource,
+        data: &'a NoData,
+    ) -> CustomCtx<'a> {
         ctx_hovered(params, src, data, true)
     }
 
@@ -538,7 +545,10 @@ mod tests {
             data,
             content: &[],
             rect: None,
-            state: CustomState { hovered, ..Default::default() },
+            state: CustomState {
+                hovered,
+                ..Default::default()
+            },
         }
     }
 
@@ -547,7 +557,8 @@ mod tests {
     }
 
     fn x_handle_cursor(camera: &Camera) -> Vec2 {
-        let scale = gizmo::compute_gizmo_scale(Vec3::ZERO, camera.eye_position(), camera.fov_y, VP[1]);
+        let scale =
+            gizmo::compute_gizmo_scale(Vec3::ZERO, camera.eye_position(), camera.fov_y, VP[1]);
         to_px(camera, Vec3::X * (scale * 0.5))
     }
 
@@ -569,7 +580,12 @@ mod tests {
         tool.set_frame(camera(), Some(Vec3::ZERO), ActionFrame::default());
         let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
         let mut list = DrawList::new();
-        tool.paint(&ctx(&params, &src, &data), &Style::default(), full_rect(), &mut list);
+        tool.paint(
+            &ctx(&params, &src, &data),
+            &Style::default(),
+            full_rect(),
+            &mut list,
+        );
         assert!(!list.is_empty(), "a selected gizmo paints its handles");
     }
 
@@ -578,7 +594,12 @@ mod tests {
         let tool = GizmoTool::new();
         let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
         let mut list = DrawList::new();
-        tool.paint(&ctx(&params, &src, &data), &Style::default(), full_rect(), &mut list);
+        tool.paint(
+            &ctx(&params, &src, &data),
+            &Style::default(),
+            full_rect(),
+            &mut list,
+        );
         assert!(list.is_empty(), "no selection draws nothing");
     }
 
@@ -590,12 +611,20 @@ mod tests {
         let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
 
         // Cursor over empty space does not capture.
-        let idle = tool.input(&ctx(&params, &src, &data), full_rect(), &Input::at([5.0, 5.0]));
+        let idle = tool.input(
+            &ctx(&params, &src, &data),
+            full_rect(),
+            &Input::at([5.0, 5.0]),
+        );
         assert!(!idle.capture_pointer, "empty space yields to the camera");
 
         // Cursor over the X arm captures.
         let cursor = x_handle_cursor(&cam);
-        let over = tool.input(&ctx(&params, &src, &data), full_rect(), &Input::at(cursor.to_array()));
+        let over = tool.input(
+            &ctx(&params, &src, &data),
+            full_rect(),
+            &Input::at(cursor.to_array()),
+        );
         assert!(over.capture_pointer, "hovering a handle holds the pointer");
     }
 
@@ -611,7 +640,10 @@ mod tests {
         // the pane is not the widget the pointer is on.
         let covered = ctx_hovered(&params, &src, &data, false);
         let over = tool.input(&covered, full_rect(), &Input::at(cursor.to_array()));
-        assert!(!over.capture_pointer, "the control above the handle owns the pointer");
+        assert!(
+            !over.capture_pointer,
+            "the control above the handle owns the pointer"
+        );
         assert_eq!(over.cursor, None, "and keeps its own shape");
 
         // The press belongs to that control: it must not begin a gizmo drag.
@@ -621,8 +653,15 @@ mod tests {
         assert!(!tool.is_active());
 
         // Uncovered, the same point is the gizmo's again.
-        let over = tool.input(&ctx(&params, &src, &data), full_rect(), &Input::at(cursor.to_array()));
-        assert!(over.capture_pointer, "the handle is live where nothing covers it");
+        let over = tool.input(
+            &ctx(&params, &src, &data),
+            full_rect(),
+            &Input::at(cursor.to_array()),
+        );
+        assert!(
+            over.capture_pointer,
+            "the handle is live where nothing covers it"
+        );
     }
 
     #[test]
@@ -645,7 +684,11 @@ mod tests {
         // what is drawn under the cursor, so the drag still reports its delta.
         let mut held = Input::at([start.x + 60.0, start.y]);
         held.primary_down = true;
-        let dragged = tool.input(&ctx_hovered(&params, &src, &data, false), full_rect(), &held);
+        let dragged = tool.input(
+            &ctx_hovered(&params, &src, &data, false),
+            full_rect(),
+            &held,
+        );
         assert!(dragged.capture_pointer, "a live drag keeps the pointer");
         assert!(dragged.output.is_some(), "and keeps reporting its delta");
     }
@@ -658,12 +701,20 @@ mod tests {
         let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
 
         // Empty viewport: the gizmo names no shape, so the host's own stands.
-        let idle = tool.input(&ctx(&params, &src, &data), full_rect(), &Input::at([5.0, 5.0]));
+        let idle = tool.input(
+            &ctx(&params, &src, &data),
+            full_rect(),
+            &Input::at([5.0, 5.0]),
+        );
         assert_eq!(idle.cursor, None);
 
         // Over the X arm: open, the handle can be taken.
         let cursor = x_handle_cursor(&cam);
-        let over = tool.input(&ctx(&params, &src, &data), full_rect(), &Input::at(cursor.to_array()));
+        let over = tool.input(
+            &ctx(&params, &src, &data),
+            full_rect(),
+            &Input::at(cursor.to_array()),
+        );
         assert_eq!(over.cursor, Some(Cursor::Grab));
 
         // Dragging it: closed.
@@ -690,8 +741,11 @@ mod tests {
             Widget::new(0, WidgetKind::Panel)
                 .with_layout(Layout::Free)
                 .with_child(
-                    Widget::custom(1, GIZMO_KIND, serde_json::Value::Null)
-                        .placed(Anchor::TopLeft, [0.0, 0.0], VP),
+                    Widget::custom(1, GIZMO_KIND, serde_json::Value::Null).placed(
+                        Anchor::TopLeft,
+                        [0.0, 0.0],
+                        VP,
+                    ),
                 ),
         );
 
@@ -768,7 +822,9 @@ mod tests {
 
         // Press G to begin a keyboard move.
         let mut begin = ActionFrame::default();
-        begin.actions.insert(Action::BeginMove, ResolvedActionState::Pressed);
+        begin
+            .actions
+            .insert(Action::BeginMove, ResolvedActionState::Pressed);
         tool.set_frame(cam.clone(), Some(Vec3::ZERO), begin);
         tool.input(&ctx(&params, &src, &data), full_rect(), &cursor);
         assert!(tool.is_active(), "G starts a session");
@@ -783,8 +839,16 @@ mod tests {
         let value = out.output.expect("the typed frame reports a result");
         match serde_json::from_value::<GizmoResult>(value).expect("the result deserialises") {
             GizmoResult::Update(delta) => {
-                assert_eq!(delta.position_override[0], Some(5.0), "the typed value carries");
-                assert_eq!(delta.position()[0], 5.0, "and stands in for the dragged one");
+                assert_eq!(
+                    delta.position_override[0],
+                    Some(5.0),
+                    "the typed value carries"
+                );
+                assert_eq!(
+                    delta.position()[0],
+                    5.0,
+                    "and stands in for the dragged one"
+                );
                 assert_eq!(delta.position_override[1], None, "untyped axes stay open");
             }
             other => panic!("expected an update, got {other:?}"),

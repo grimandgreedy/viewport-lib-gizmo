@@ -141,7 +141,10 @@ impl eframe::App for App {
             .show(ctx, |ui| {
                 ui.heading("Gizmo style");
                 ui.separator();
-                ui.label(format!("Mode: {:?}  (press Q to cycle)", self.driver.mode()));
+                ui.label(format!(
+                    "Mode: {:?}  (press Q to cycle)",
+                    self.driver.mode()
+                ));
                 ui.horizontal(|ui| {
                     if ui.button("Move").clicked() {
                         self.driver.set_mode(GizmoMode::Translate);
@@ -303,8 +306,7 @@ impl eframe::App for App {
                 if let Some(gizmo_center) = self.driver.gizmo_center() {
                     let scale = self.driver.gizmo_scale();
                     let view_proj = camera.proj_matrix() * camera.view_matrix();
-                    let forward =
-                        (camera.center - camera.eye_position()).normalize_or(Vec3::NEG_Z);
+                    let forward = (camera.center - camera.eye_position()).normalize_or(Vec3::NEG_Z);
                     let mode = self.driver.gizmo().mode;
                     let hovered = self.driver.hovered_axis();
                     let numeric = self.driver.readout();
@@ -324,9 +326,11 @@ impl eframe::App for App {
                     );
                     // Numeric readout (e.g. while typing "S 22 Tab 2").
                     if let Some(text) = numeric {
-                        fd.overlays
-                            .labels
-                            .push(build_numeric_label(&self.style, &text, gizmo_center));
+                        fd.overlays.labels.push(build_numeric_label(
+                            &self.style,
+                            &text,
+                            gizmo_center,
+                        ));
                     }
                 }
 

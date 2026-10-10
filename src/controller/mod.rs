@@ -319,8 +319,7 @@ impl ManipulationController {
                     hovered_axis: GizmoAxis::None,
                     active_axis: GizmoAxis::None,
                     drag_start_mouse: None,
-                    pivot_mode:
-                        crate::maths::gizmo::PivotMode::SelectionCentroid,
+                    pivot_mode: crate::maths::gizmo::PivotMode::SelectionCentroid,
                 };
                 let hit = temp_gizmo.hit_test_oriented(
                     ray_origin,
@@ -465,9 +464,9 @@ fn hit_to_constraint(hit: GizmoAxis) -> (Option<GizmoAxis>, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use viewport_lib_types::input::ActionFrame;
     use crate::maths::snap::SnapConfig;
     use session::{NumericInputState, update_constraint};
+    use viewport_lib_types::input::ActionFrame;
 
     fn make_camera() -> viewport_lib_types::camera::Camera {
         viewport_lib_types::camera::Camera::default()
@@ -801,7 +800,10 @@ mod tests {
             emitted[1],
             emitted[0]
         );
-        assert!(emitted[0].length() > 1e-4, "the drag should produce movement");
+        assert!(
+            emitted[0].length() > 1e-4,
+            "the drag should produce movement"
+        );
     }
 
     #[test]

@@ -44,11 +44,13 @@ pub use maths::gizmo::{
     cursor_ray, gizmo_center_for_pivot, gizmo_center_from_selection, project_drag_onto_axis,
     project_drag_onto_plane, project_drag_onto_rotation, project_drag_onto_screen_plane,
 };
-pub use maths::{NodeId, Selection};
 pub use maths::snap::{
     ConstraintOverlay, SnapConfig, snap_angle, snap_scale, snap_value, snap_vec3,
 };
-pub use maths::solvers::{angular_rotation_from_cursor, constrained_scale, constrained_translation};
+pub use maths::solvers::{
+    angular_rotation_from_cursor, constrained_scale, constrained_translation,
+};
+pub use maths::{NodeId, Selection};
 
 // Layer 2: style and overlay builder.
 pub use overlay::builder::{build_gizmo_overlays, build_numeric_label};

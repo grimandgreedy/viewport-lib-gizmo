@@ -35,18 +35,18 @@ use vpl::{
 };
 
 use viewport_lib_ui::{
-    Anchor, Colour, Cursor, InputTranslator, Layout, NoData, NoSource, Scroll, Screen,
+    Anchor, Colour, Cursor, InputTranslator, Layout, NoData, NoSource, Screen, Scroll,
     ShapedTextMeasurer, Theme, ThemeMode, UiEvent, UiState, Value, Visibility, Widget, WidgetKind,
     WidgetRegistry, custom_output, expand_customs, extend_frame, map_cursor, render_customs, roles,
     serde_json, theme_resolve,
 };
 
-use viewport_lib_gizmo::{GizmoMode, ValueMode};
 use viewport_lib_gizmo::ui::{
     GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, ObjectPose, ReadoutIds, ReadoutWhen,
     readout_panel, readout_values_in, set_mode_badge, set_readout, value_mode_from_index,
     value_mode_index,
 };
+use viewport_lib_gizmo::{GizmoMode, ValueMode};
 
 // Widget ids in the screen.
 const ROOT: u32 = 0;
@@ -96,8 +96,11 @@ fn dark_theme() -> Theme {
 
 /// Build the screen: a full-viewport gizmo pane under a small readout panel.
 fn build_screen() -> Screen {
-    let gizmo = Widget::custom(GIZMO_PANE, GIZMO_KIND, serde_json::Value::Null)
-        .placed(Anchor::TopLeft, [0.0, 0.0], [1280.0, 720.0]);
+    let gizmo = Widget::custom(GIZMO_PANE, GIZMO_KIND, serde_json::Value::Null).placed(
+        Anchor::TopLeft,
+        [0.0, 0.0],
+        [1280.0, 720.0],
+    );
 
     // The readout panel is defined by the gizmo crate (styling and padding are its
     // defaults); the host only places it.
@@ -277,8 +280,10 @@ fn main() {
                 // pan keep working even with the cursor over a handle.
                 let left_drag = matches!(
                     ev,
-                    ViewportEvent::MouseButton { button: MouseButton::Left, .. }
-                        | ViewportEvent::PointerMoved { .. }
+                    ViewportEvent::MouseButton {
+                        button: MouseButton::Left,
+                        ..
+                    } | ViewportEvent::PointerMoved { .. }
                 );
                 if !(grabbing && left_drag) {
                     orbit.push_event(ev.clone());
@@ -321,7 +326,9 @@ fn main() {
                 w.size = vp_px;
             }
 
-            let result = ui.update_customs(screen, &input, vp_px, &measure, registry, &NoSource, &NoData);
+            let result = ui.update_customs(
+                screen, &input, vp_px, &measure, registry, &NoSource, &NoData,
+            );
 
             if node.is_some() {
                 match custom_output::<GizmoResult>(&result.events, GIZMO_PANE) {
@@ -334,8 +341,7 @@ fn main() {
                         *base = *current;
                         *last_delta = GizmoDelta::default();
                     }
-                    Ok(Some(GizmoResult::Cancel))
-                    | Ok(Some(GizmoResult::ConstraintChanged)) => {
+                    Ok(Some(GizmoResult::Cancel)) | Ok(Some(GizmoResult::ConstraintChanged)) => {
                         *current = *base;
                     }
                     _ => {

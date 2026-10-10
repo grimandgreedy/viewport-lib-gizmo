@@ -55,8 +55,8 @@ fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4, values: ValueMod
     for (i, ov) in delta.position_override.iter().enumerate() {
         if let Some(v) = ov {
             m.col_mut(3)[i] = match values {
-                ValueMode::Objective => *v,          // absolute world coordinate
-                _ => base_pos[i] + *v,               // relative: offset from start
+                ValueMode::Objective => *v, // absolute world coordinate
+                _ => base_pos[i] + *v,      // relative: offset from start
             };
         }
     }
@@ -86,9 +86,11 @@ fn main() {
                 .upload_mesh_data(device, &primitives::cube(1.0))
                 .unwrap();
             let transform = Mat4::from_translation(Vec3::ZERO);
-            let node = session
-                .scene_mut()
-                .add(Some(cube), transform, Material::from_colour([0.4, 0.6, 0.9]));
+            let node = session.scene_mut().add(
+                Some(cube),
+                transform,
+                Material::from_colour([0.4, 0.6, 0.9]),
+            );
             session.camera_mut().distance = 8.0;
             let mut s = state.borrow_mut();
             s.node = Some(node);

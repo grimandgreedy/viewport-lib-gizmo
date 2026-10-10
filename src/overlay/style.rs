@@ -203,10 +203,7 @@ impl Default for GizmoStyle {
 
             // Bottom-centre of the viewport by default, lifted off the edge. Set
             // a World anchor instead to float the readout at the gizmo.
-            label_anchor: OverlayOrigin::Viewport(Alignment::new(
-                AnchorX::Middle,
-                AnchorY::Bottom,
-            )),
+            label_anchor: OverlayOrigin::Viewport(Alignment::new(AnchorX::Middle, AnchorY::Bottom)),
             label_align_x: AnchorX::Middle,
             label_align_y: AnchorY::Bottom,
             label_offset: [0.0, -24.0],
@@ -310,9 +307,18 @@ mod tests {
     #[test]
     fn default_axis_colours_match_the_standard_look() {
         let s = GizmoStyle::default();
-        assert_eq!(s.axis_colour(GizmoAxis::X, GizmoAxis::None), [0.75, 0.06, 0.07, 1.0]);
-        assert_eq!(s.axis_colour(GizmoAxis::X, GizmoAxis::X), [0.975, 0.078, 0.091, 1.0]);
-        assert_eq!(s.axis_colour(GizmoAxis::Screen, GizmoAxis::None), [0.9, 0.9, 0.9, 0.6]);
+        assert_eq!(
+            s.axis_colour(GizmoAxis::X, GizmoAxis::None),
+            [0.75, 0.06, 0.07, 1.0]
+        );
+        assert_eq!(
+            s.axis_colour(GizmoAxis::X, GizmoAxis::X),
+            [0.975, 0.078, 0.091, 1.0]
+        );
+        assert_eq!(
+            s.axis_colour(GizmoAxis::Screen, GizmoAxis::None),
+            [0.9, 0.9, 0.9, 0.6]
+        );
     }
 
     #[test]

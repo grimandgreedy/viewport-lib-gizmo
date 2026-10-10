@@ -310,7 +310,10 @@ mod tests {
     fn to_px(camera: &Camera, world: Vec3, vp: Vec2) -> Vec2 {
         let clip = (camera.proj_matrix() * camera.view_matrix()) * world.extend(1.0);
         let ndc = clip.truncate() / clip.w;
-        Vec2::new((ndc.x * 0.5 + 0.5) * vp.x, (1.0 - (ndc.y * 0.5 + 0.5)) * vp.y)
+        Vec2::new(
+            (ndc.x * 0.5 + 0.5) * vp.x,
+            (1.0 - (ndc.y * 0.5 + 0.5)) * vp.y,
+        )
     }
 
     fn frame<'a>(
@@ -352,7 +355,10 @@ mod tests {
         let vp = Vec2::new(1280.0, 720.0);
         d.update(frame(&af, &cam, vp, None, Some(Vec3::ZERO)));
         assert_eq!(d.gizmo_center(), Some(Vec3::ZERO));
-        assert!(d.gizmo_scale() > 0.0, "scale should be sized for the screen");
+        assert!(
+            d.gizmo_scale() > 0.0,
+            "scale should be sized for the screen"
+        );
     }
 
     #[test]
@@ -375,7 +381,13 @@ mod tests {
         let af = ActionFrame::default();
         let cam = camera();
         let vp = Vec2::new(1280.0, 720.0);
-        d.update(frame(&af, &cam, vp, Some(Vec2::new(5.0, 5.0)), Some(Vec3::ZERO)));
+        d.update(frame(
+            &af,
+            &cam,
+            vp,
+            Some(Vec2::new(5.0, 5.0)),
+            Some(Vec3::ZERO),
+        ));
         assert_eq!(d.hovered_axis(), GizmoAxis::None);
     }
 

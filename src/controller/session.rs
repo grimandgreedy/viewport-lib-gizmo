@@ -2,8 +2,8 @@
 //!
 //! This module is not part of the public API. All types are `pub(crate)`.
 
-use viewport_lib_types::input::{Action, ActionFrame};
 use crate::maths::gizmo::GizmoAxis;
+use viewport_lib_types::input::{Action, ActionFrame};
 
 use super::types::{ManipulationKind, ManipulationState};
 

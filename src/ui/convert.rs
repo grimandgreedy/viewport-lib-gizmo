@@ -102,7 +102,10 @@ fn linear_to_srgb(c: f32) -> f32 {
 }
 
 fn gradient_stop(t: f32, colour: OverlayColour) -> DrawStop {
-    DrawStop { t, colour: arr(colour) }
+    DrawStop {
+        t,
+        colour: arr(colour),
+    }
 }
 
 fn widget_shape(shape: &OverlayShape) -> WidgetShape {
@@ -335,7 +338,10 @@ mod tests {
                 assert_eq!(width, 2.0);
                 assert!(close(colour, [1.0, 1.0, 1.0, 1.0]), "the stroke colour");
                 assert!(closed);
-                assert!(fill.is_some_and(|f| close(f, [1.0, 0.0, 0.0, 1.0])), "the solid interior");
+                assert!(
+                    fill.is_some_and(|f| close(f, [1.0, 0.0, 0.0, 1.0])),
+                    "the solid interior"
+                );
             }
             other => panic!("expected a polyline, got {other:?}"),
         }
@@ -364,7 +370,10 @@ mod tests {
                 fill: DrawFill::Solid([r, g, b, a]),
                 ..
             } => {
-                assert!((r - 0.735).abs() < 0.01, "0.5 linear encodes to ~0.735 sRGB, got {r}");
+                assert!(
+                    (r - 0.735).abs() < 0.01,
+                    "0.5 linear encodes to ~0.735 sRGB, got {r}"
+                );
                 assert_eq!([g, b], [r, r], "channels encode identically");
                 assert_eq!(a, 0.5, "alpha is not encoded");
             }

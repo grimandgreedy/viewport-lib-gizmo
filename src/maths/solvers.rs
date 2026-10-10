@@ -3,8 +3,8 @@
 //! All functions are stateless. They translate raw input (pointer delta, camera,
 //! axis constraint) into world-space transform components that the app can apply directly.
 
-use viewport_lib_types::camera::Camera;
 use crate::maths::gizmo::{GizmoAxis, project_drag_onto_axis};
+use viewport_lib_types::camera::Camera;
 
 /// Compute the signed rotation angle (radians) produced by the cursor sweeping around the
 /// screen-projected gizmo center.

@@ -135,7 +135,10 @@ pub fn readout_values(mode: GizmoMode, delta: &GizmoDelta) -> [f32; 3] {
         GizmoMode::Scale => delta.scale_values(),
         GizmoMode::Rotate => {
             let (x, y, z) = Quat::from_array(delta.rotation).to_euler(EulerRot::XYZ);
-            override_into([x.to_degrees(), y.to_degrees(), z.to_degrees()], &degrees(delta.rotation_override))
+            override_into(
+                [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+                &degrees(delta.rotation_override),
+            )
         }
     }
 }
@@ -159,7 +162,10 @@ pub fn readout_values_in(
         GizmoMode::Scale => override_into(pose.scale, &delta.scale_override),
         GizmoMode::Rotate => {
             let (x, y, z) = Quat::from_array(pose.rotation).to_euler(EulerRot::XYZ);
-            override_into([x.to_degrees(), y.to_degrees(), z.to_degrees()], &degrees(delta.rotation_override))
+            override_into(
+                [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+                &degrees(delta.rotation_override),
+            )
         }
     }
 }
@@ -277,12 +283,18 @@ mod tests {
             rotation: Quat::from_rotation_z(std::f32::consts::FRAC_PI_2).to_array(),
             ..Default::default()
         };
-        assert_eq!(readout_values(GizmoMode::Translate, &delta), [1.0, 2.0, 3.0]);
+        assert_eq!(
+            readout_values(GizmoMode::Translate, &delta),
+            [1.0, 2.0, 3.0]
+        );
         assert_eq!(readout_values(GizmoMode::Scale, &delta), [4.0, 5.0, 6.0]);
 
         let [rx, ry, rz] = readout_values(GizmoMode::Rotate, &delta);
         assert!(rx.abs() < 1e-3 && ry.abs() < 1e-3);
-        assert!((rz - 90.0).abs() < 1e-3, "a quarter turn about Z reads 90 degrees");
+        assert!(
+            (rz - 90.0).abs() < 1e-3,
+            "a quarter turn about Z reads 90 degrees"
+        );
     }
 
     #[test]
@@ -302,7 +314,10 @@ mod tests {
     #[test]
     fn objective_mode_reads_the_object_not_the_offset() {
         // Halfway through a two-unit drag on X, from an object standing at x = 10.
-        let delta = GizmoDelta { translation: [2.0, 0.0, 0.0], ..Default::default() };
+        let delta = GizmoDelta {
+            translation: [2.0, 0.0, 0.0],
+            ..Default::default()
+        };
         let pose = ObjectPose {
             translation: [12.0, 3.0, 0.0],
             scale: [2.0, 2.0, 2.0],
@@ -335,7 +350,10 @@ mod tests {
         let delta = GizmoDelta::default();
         let [x, y, z] = readout_values_in(GizmoMode::Rotate, &delta, ValueMode::Objective, &pose);
         assert!(x.abs() < 1e-3 && y.abs() < 1e-3);
-        assert!((z - 90.0).abs() < 1e-3, "a quarter turn about Z reads 90 degrees");
+        assert!(
+            (z - 90.0).abs() < 1e-3,
+            "a quarter turn about Z reads 90 degrees"
+        );
     }
 
     #[test]
@@ -345,7 +363,10 @@ mod tests {
             position_override: [Some(7.0), None, None],
             ..Default::default()
         };
-        let pose = ObjectPose { translation: [12.0, 3.0, 0.0], ..Default::default() };
+        let pose = ObjectPose {
+            translation: [12.0, 3.0, 0.0],
+            ..Default::default()
+        };
         assert_eq!(
             readout_values_in(GizmoMode::Translate, &delta, ValueMode::Objective, &pose),
             [7.0, 3.0, 0.0],
@@ -374,7 +395,13 @@ mod tests {
 
     #[test]
     fn the_panel_carries_a_badge_that_follows_the_mode() {
-        let ids = ReadoutIds { panel: 1, row: 2, badge: 3, field: 4, mode: 5 };
+        let ids = ReadoutIds {
+            panel: 1,
+            row: 2,
+            badge: 3,
+            field: 4,
+            mode: 5,
+        };
         let mut panel = readout_panel(ids, GizmoMode::Translate, ValueMode::Relative);
 
         let label = |w: &Widget| match &w.find(3).expect("the badge is in the panel").kind {
@@ -391,7 +418,13 @@ mod tests {
     fn every_widget_in_the_panel_has_its_own_id() {
         // The panel builds a row of its own, so the host names that id too: a repeat
         // would collide in the layout's rect map.
-        let ids = ReadoutIds { panel: 1, row: 2, badge: 3, field: 4, mode: 5 };
+        let ids = ReadoutIds {
+            panel: 1,
+            row: 2,
+            badge: 3,
+            field: 4,
+            mode: 5,
+        };
         let panel = readout_panel(ids, GizmoMode::Rotate, ValueMode::Objective);
         let mut seen = Vec::new();
         fn walk(w: &Widget, seen: &mut Vec<WidgetId>) {
@@ -410,7 +443,9 @@ mod tests {
     #[test]
     fn the_readout_field_is_a_three_channel_vector_field() {
         match readout_field(7).kind {
-            WidgetKind::VectorField { value, precision, .. } => {
+            WidgetKind::VectorField {
+                value, precision, ..
+            } => {
                 assert_eq!(value, vec![0.0, 0.0, 0.0]);
                 assert_eq!(precision, 2);
             }
@@ -437,7 +472,10 @@ mod tests {
 
         match value_mode_segmented(9, ValueMode::Objective).kind {
             WidgetKind::Segmented { options, selected } => {
-                assert_eq!(options, vec!["Relative".to_string(), "Objective".to_string()]);
+                assert_eq!(
+                    options,
+                    vec!["Relative".to_string(), "Objective".to_string()]
+                );
                 assert_eq!(selected, 1);
             }
             other => panic!("expected a segmented control, got {other:?}"),
