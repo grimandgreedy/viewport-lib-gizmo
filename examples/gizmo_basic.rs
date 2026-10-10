@@ -164,7 +164,7 @@ fn main() {
                 cursor_viewport: pointer.cursor,
                 pointer_delta: pointer.delta,
                 selection_center: Some(center),
-                drag_started: pointer.drag_started,
+                drag_started: pointer.pressed,
                 dragging: pointer.dragging,
                 clicked: pointer.clicked,
             });
