@@ -43,7 +43,6 @@ use crate::maths::gizmo::{self, GizmoAxis, GizmoMode, GizmoSpace};
 use crate::overlay::builder::build_gizmo_overlays;
 use crate::overlay::style::GizmoStyle;
 
-use super::convert::push_gizmo_overlays;
 
 /// The default `kind` string to register [`GizmoTool`] under.
 pub const GIZMO_KIND: &str = "gizmo";
@@ -355,22 +354,10 @@ impl CustomWidget for GizmoTool {
             &mut polylines,
         );
 
-        // The builder projects into viewport-local pixels (pane top-left is the
-        // origin). Shift into the draw list's space so the handles land where the
-        // pane sits.
-        let [ox, oy] = rect.min;
-        for shape in &mut shapes {
-            let t = shape.transform.translate;
-            shape.transform.translate = [t[0] + ox, t[1] + oy];
-        }
-        for line in &mut polylines {
-            for point in &mut line.points {
-                point[0] += ox;
-                point[1] += oy;
-            }
-        }
-
-        push_gizmo_overlays(out, &shapes, &polylines);
+        // The builder projects into viewport-local pixels with the pane's top-left as the
+        // origin, which is what the draw list takes: it hangs the items from the pane's rect
+        // and orders them by their projected z_order, so the near handle draws over the far.
+        out.push_overlay_items(rect, &shapes, &polylines, &[]);
     }
 
     fn input(&self, ctx: &CustomCtx, rect: Rect, input: &Input) -> CustomInput {
