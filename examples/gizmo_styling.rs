@@ -301,7 +301,8 @@ impl eframe::App for App {
                 if grabbing {
                     self.session.frame(vp_ctx);
                 } else {
-                    self.session.update_orbit(&mut self.orbit);
+                    self.session
+                        .update_orbit(&mut self.orbit, ctx.input(|i| i.stable_dt));
                 }
 
                 // Draw the gizmo in the current style, after assembly so it is not

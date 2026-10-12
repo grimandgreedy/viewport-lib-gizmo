@@ -138,7 +138,8 @@ fn main() {
                 }
             }
             let actions = input.resolve();
-            orbit.apply(ictx.camera_mut(), &actions);
+            let dt = ictx.dt();
+            orbit.apply(ictx.camera_mut(), &actions, dt);
         }
     })
     .run({
