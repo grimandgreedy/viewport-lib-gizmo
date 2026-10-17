@@ -31,7 +31,7 @@ use glam::{Mat4, Quat, Vec3};
 use viewport_lib as vpl;
 use vpl::{
     AppConfig, ButtonState, KeyCode, Material, MouseButton, NodeId, OrbitCameraController,
-    ViewportApp, ViewportContext, ViewportEvent, primitives,
+    ViewportApp, ViewportContext, ViewportEvent, WindowConfig, primitives,
 };
 
 use viewport_lib_ui::{
@@ -150,7 +150,7 @@ fn apply(delta: &GizmoDelta, pivot: Vec3, base: Mat4, values: ValueMode) -> Mat4
     m
 }
 
-/// The whole app, shared between the input and run callbacks.
+/// The whole app, shared between the input and frame callbacks.
 struct App {
     screen: Screen,
     ui: UiState,
@@ -189,246 +189,252 @@ fn main() {
         cursor: Cursor::Default,
     }));
 
-    ViewportApp::new(
-        AppConfig::default()
-            .with_title("viewport-lib-gizmo : ui frontend")
-            .with_window_size(1280, 720),
-    )
-    .setup({
-        let app = app.clone();
-        move |session, device| {
-            let cube = session
-                .resources_mut()
-                .upload_mesh_data(device, &primitives::cube(1.0))
-                .unwrap();
-            let transform = Mat4::from_translation(Vec3::ZERO);
-            let node = session.scene_mut().add(
-                Some(cube),
-                transform,
-                Material::from_colour(vpl::Colour::linear_rgb(0.4, 0.6, 0.9)),
-            );
-            session.camera_mut().distance = 8.0;
-            let mut a = app.borrow_mut();
-            a.node = Some(node);
-            a.base = transform;
-            a.current = transform;
-        }
-    })
-    .with_input({
-        let app = app.clone();
-        let mut orbit = OrbitCameraController::viewport_all();
-        let mut translator = InputTranslator::new();
-        move |ictx| {
-            let vp_px = ictx.viewport_size();
-            orbit.begin_frame(ViewportContext {
-                hovered: true,
-                focused: true,
-                viewport_size: vp_px,
-            });
+    ViewportApp::new(AppConfig::default())
+        .window_with_input(
+            WindowConfig::default()
+                .with_title("viewport-lib-gizmo : ui frontend")
+                .with_window_size(1280, 720),
+            {
+                let app = app.clone();
+                move |session, device| {
+                    let cube = session
+                        .resources_mut()
+                        .upload_mesh_data(device, &primitives::cube(1.0))
+                        .unwrap();
+                    let transform = Mat4::from_translation(Vec3::ZERO);
+                    let node = session.scene_mut().add(
+                        Some(cube),
+                        transform,
+                        Material::from_colour(vpl::Colour::linear_rgb(0.4, 0.6, 0.9)),
+                    );
+                    session.camera_mut().distance = 8.0;
+                    let mut a = app.borrow_mut();
+                    a.node = Some(node);
+                    a.base = transform;
+                    a.current = transform;
+                }
+            },
+            {
+                let app = app.clone();
+                let mut orbit = OrbitCameraController::viewport_all();
+                let mut translator = InputTranslator::new();
+                move |ictx| {
+                    let vp_px = ictx.viewport_size();
+                    orbit.begin_frame(ViewportContext {
+                        hovered: true,
+                        focused: true,
+                        viewport_size: vp_px,
+                    });
 
-            let grabbing = app.borrow().grabbing;
-            let raw = ictx.events().to_vec();
+                    let grabbing = app.borrow().grabbing;
+                    let raw = ictx.events().to_vec();
 
-            // Input router. The host owns the camera; vpl-ui owns the panels and the
-            // gizmo. The wheel is always the camera's zoom (nothing in this UI scrolls),
-            // so it goes straight to the camera and is withheld from vpl-ui, whose coarse
-            // pointer capture would otherwise swallow it while a handle is hovered.
-            // Pointer and key events go to vpl-ui; the camera's orbit and pan get them
-            // only when vpl-ui did not capture the pointer last frame.
-            let mut ui_events = Vec::with_capacity(raw.len());
-            for ev in &raw {
-                if let ViewportEvent::Key {
-                    key,
-                    state: ButtonState::Pressed,
-                    repeat: false,
-                } = ev
-                {
-                    let a = app.borrow();
-                    match key {
-                        KeyCode::Tab | KeyCode::Q => {
-                            let next = match a.tool.mode() {
-                                GizmoMode::Translate => GizmoMode::Rotate,
-                                GizmoMode::Rotate => GizmoMode::Scale,
-                                _ => GizmoMode::Translate,
-                            };
-                            a.tool.set_mode(next);
-                        }
-                        KeyCode::Backtick => a.tool.set_value_mode(a.tool.value_mode().toggled()),
-                        KeyCode::H => {
-                            // Cycle the readout: always shown, shown only while a drag or
-                            // a keyboard session is running, hidden.
-                            let tool = &a.tool;
-                            match (tool.show_readout(), tool.readout_when()) {
-                                (true, ReadoutWhen::Always) => {
-                                    tool.set_readout_when(ReadoutWhen::WhileActive)
+                    // Input router. The host owns the camera; vpl-ui owns the panels and the
+                    // gizmo. The wheel is always the camera's zoom (nothing in this UI scrolls),
+                    // so it goes straight to the camera and is withheld from vpl-ui, whose coarse
+                    // pointer capture would otherwise swallow it while a handle is hovered.
+                    // Pointer and key events go to vpl-ui; the camera's orbit and pan get them
+                    // only when vpl-ui did not capture the pointer last frame.
+                    let mut ui_events = Vec::with_capacity(raw.len());
+                    for ev in &raw {
+                        if let ViewportEvent::Key {
+                            key,
+                            state: ButtonState::Pressed,
+                            repeat: false,
+                        } = ev
+                        {
+                            let a = app.borrow();
+                            match key {
+                                KeyCode::Tab | KeyCode::Q => {
+                                    let next = match a.tool.mode() {
+                                        GizmoMode::Translate => GizmoMode::Rotate,
+                                        GizmoMode::Rotate => GizmoMode::Scale,
+                                        _ => GizmoMode::Translate,
+                                    };
+                                    a.tool.set_mode(next);
                                 }
-                                (true, _) => tool.set_show_readout(false),
-                                _ => {
-                                    tool.set_show_readout(true);
-                                    tool.set_readout_when(ReadoutWhen::Always);
+                                KeyCode::Backtick => {
+                                    a.tool.set_value_mode(a.tool.value_mode().toggled())
+                                }
+                                KeyCode::H => {
+                                    // Cycle the readout: always shown, shown only while a drag or
+                                    // a keyboard session is running, hidden.
+                                    let tool = &a.tool;
+                                    match (tool.show_readout(), tool.readout_when()) {
+                                        (true, ReadoutWhen::Always) => {
+                                            tool.set_readout_when(ReadoutWhen::WhileActive)
+                                        }
+                                        (true, _) => tool.set_show_readout(false),
+                                        _ => {
+                                            tool.set_show_readout(true);
+                                            tool.set_readout_when(ReadoutWhen::Always);
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        ictx.forward(ev.clone());
+
+                        // The only thing the gizmo (or a panel) consumes is the left-button
+                        // drag, so that is the only thing withheld from the camera while the UI
+                        // holds the pointer. The wheel, modifier changes, and other buttons
+                        // always reach the camera, so zoom, cmd+scroll orbit, and shift+scroll
+                        // pan keep working even with the cursor over a handle.
+                        let left_drag = matches!(
+                            ev,
+                            ViewportEvent::MouseButton {
+                                button: MouseButton::Left,
+                                ..
+                            } | ViewportEvent::PointerMoved { .. }
+                        );
+                        if !(grabbing && left_drag) {
+                            orbit.push_event(ev.clone());
+                        }
+
+                        // vpl-ui sees pointer, buttons, keys, and modifier changes so its panels
+                        // hover and click and the gizmo drag runs. The wheel is the camera's
+                        // alone in this app (nothing in the UI scrolls).
+                        if !matches!(ev, ViewportEvent::Wheel { .. }) {
+                            ui_events.push(ev.clone());
+                        }
+                    }
+                    orbit.apply_to_camera(ictx.camera_mut());
+                    let camera = ictx.camera_mut().clone();
+                    // Resolve this frame's input now that every event has been forwarded, so
+                    // the gizmo sees the keyboard g/r/s, confirm/cancel, and numeric entry.
+                    let action = ictx.resolve().clone();
+                    let input = translator.frame(&ui_events);
+                    let measure = ShapedTextMeasurer::new(ictx.resources(), no_fonts);
+
+                    let mut a = app.borrow_mut();
+                    let App {
+                        screen,
+                        ui,
+                        tool,
+                        registry,
+                        node,
+                        base,
+                        current,
+                        last_delta,
+                        grabbing,
+                        cursor,
+                        ..
+                    } = &mut *a;
+
+                    let centre = current.col(3).truncate();
+                    tool.set_frame(camera, Some(centre), action);
+                    // Keep the pane covering the viewport as the window resizes.
+                    if let Some(w) = screen.root.find_mut(GIZMO_PANE) {
+                        w.size = vp_px;
+                    }
+
+                    let result = ui.update_customs(
+                        screen, &input, vp_px, &measure, registry, &NoSource, &NoData,
+                    );
+
+                    if node.is_some() {
+                        match custom_output::<GizmoResult>(&result.events, GIZMO_PANE) {
+                            Ok(Some(GizmoResult::Update(delta))) => {
+                                *last_delta = delta;
+                                let pivot = base.col(3).truncate();
+                                *current = apply(&delta, pivot, *base, tool.value_mode());
+                            }
+                            Ok(Some(GizmoResult::Commit)) => {
+                                *base = *current;
+                                *last_delta = GizmoDelta::default();
+                            }
+                            Ok(Some(GizmoResult::Cancel))
+                            | Ok(Some(GizmoResult::ConstraintChanged)) => {
+                                *current = *base;
+                            }
+                            _ => {
+                                if !tool.is_active() {
+                                    *base = *current;
                                 }
                             }
                         }
-                        _ => {}
                     }
-                }
-                ictx.forward(ev.clone());
 
-                // The only thing the gizmo (or a panel) consumes is the left-button
-                // drag, so that is the only thing withheld from the camera while the UI
-                // holds the pointer. The wheel, modifier changes, and other buttons
-                // always reach the camera, so zoom, cmd+scroll orbit, and shift+scroll
-                // pan keep working even with the cursor over a handle.
-                let left_drag = matches!(
-                    ev,
-                    ViewportEvent::MouseButton {
-                        button: MouseButton::Left,
-                        ..
-                    } | ViewportEvent::PointerMoved { .. }
-                );
-                if !(grabbing && left_drag) {
-                    orbit.push_event(ev.clone());
-                }
-
-                // vpl-ui sees pointer, buttons, keys, and modifier changes so its panels
-                // hover and click and the gizmo drag runs. The wheel is the camera's
-                // alone in this app (nothing in the UI scrolls).
-                if !matches!(ev, ViewportEvent::Wheel { .. }) {
-                    ui_events.push(ev.clone());
-                }
-            }
-            orbit.apply_to_camera(ictx.camera_mut());
-            let camera = ictx.camera_mut().clone();
-            // Resolve this frame's input now that every event has been forwarded, so
-            // the gizmo sees the keyboard g/r/s, confirm/cancel, and numeric entry.
-            let action = ictx.resolve().clone();
-            let input = translator.frame(&ui_events);
-            let measure = ShapedTextMeasurer::new(ictx.resources(), no_fonts);
-
-            let mut a = app.borrow_mut();
-            let App {
-                screen,
-                ui,
-                tool,
-                registry,
-                node,
-                base,
-                current,
-                last_delta,
-                grabbing,
-                cursor,
-                ..
-            } = &mut *a;
-
-            let centre = current.col(3).truncate();
-            tool.set_frame(camera, Some(centre), action);
-            // Keep the pane covering the viewport as the window resizes.
-            if let Some(w) = screen.root.find_mut(GIZMO_PANE) {
-                w.size = vp_px;
-            }
-
-            let result = ui.update_customs(
-                screen, &input, vp_px, &measure, registry, &NoSource, &NoData,
-            );
-
-            if node.is_some() {
-                match custom_output::<GizmoResult>(&result.events, GIZMO_PANE) {
-                    Ok(Some(GizmoResult::Update(delta))) => {
-                        *last_delta = delta;
-                        let pivot = base.col(3).truncate();
-                        *current = apply(&delta, pivot, *base, tool.value_mode());
-                    }
-                    Ok(Some(GizmoResult::Commit)) => {
-                        *base = *current;
-                        *last_delta = GizmoDelta::default();
-                    }
-                    Ok(Some(GizmoResult::Cancel)) | Ok(Some(GizmoResult::ConstraintChanged)) => {
-                        *current = *base;
-                    }
-                    _ => {
-                        if !tool.is_active() {
-                            *base = *current;
+                    // A pick on the value-mode segmented toggles the tool's value mode.
+                    for event in &result.events {
+                        if let UiEvent::ValueChanged { id, value } = event {
+                            if *id == MODE_SEG {
+                                if let Value::Index(index) = value {
+                                    tool.set_value_mode(value_mode_from_index(*index));
+                                }
+                            }
                         }
                     }
-                }
-            }
 
-            // A pick on the value-mode segmented toggles the tool's value mode.
-            for event in &result.events {
-                if let UiEvent::ValueChanged { id, value } = event {
-                    if *id == MODE_SEG {
-                        if let Value::Index(index) = value {
-                            tool.set_value_mode(value_mode_from_index(*index));
+                    // Refresh the readout and keep the segmented in sync with the tool. Relative
+                    // mode counts the drag; objective reads the cube's own world values, so the
+                    // field needs the pose the host is holding.
+                    let pose = ObjectPose::from_matrix(*current);
+                    set_mode_badge(&mut screen.root, MODE_BADGE, tool.mode());
+                    set_readout(
+                        &mut screen.root,
+                        READOUT,
+                        readout_values_in(tool.mode(), last_delta, tool.value_mode(), &pose),
+                    );
+                    if let Some(w) = screen.root.find_mut(MODE_SEG) {
+                        if let WidgetKind::Segmented { selected, .. } = &mut w.kind {
+                            *selected = value_mode_index(tool.value_mode());
                         }
                     }
+
+                    // The show_readout flag on the tool gates the panel's visibility.
+                    if let Some(w) = screen.root.find_mut(INFO_PANEL) {
+                        w.visibility = if tool.readout_visible() {
+                            Visibility::Shown
+                        } else {
+                            Visibility::Hidden
+                        };
+                    }
+
+                    // Suppress orbit next frame whenever the UI took the pointer (a hovered
+                    // handle, a live drag, or a click on the panel).
+                    *grabbing = result.capture.pointer;
+                    // The shape the UI wants for what the pointer is over: the gizmo's open hand
+                    // over a handle, the closed one while dragging, whatever a control under it
+                    // asks for otherwise. Applied in the render callback, which has the window.
+                    *cursor = ui.cursor();
                 }
-            }
-
-            // Refresh the readout and keep the segmented in sync with the tool. Relative
-            // mode counts the drag; objective reads the cube's own world values, so the
-            // field needs the pose the host is holding.
-            let pose = ObjectPose::from_matrix(*current);
-            set_mode_badge(&mut screen.root, MODE_BADGE, tool.mode());
-            set_readout(
-                &mut screen.root,
-                READOUT,
-                readout_values_in(tool.mode(), last_delta, tool.value_mode(), &pose),
-            );
-            if let Some(w) = screen.root.find_mut(MODE_SEG) {
-                if let WidgetKind::Segmented { selected, .. } = &mut w.kind {
-                    *selected = value_mode_index(tool.value_mode());
-                }
-            }
-
-            // The show_readout flag on the tool gates the panel's visibility.
-            if let Some(w) = screen.root.find_mut(INFO_PANEL) {
-                w.visibility = if tool.readout_visible() {
-                    Visibility::Shown
-                } else {
-                    Visibility::Hidden
-                };
-            }
-
-            // Suppress orbit next frame whenever the UI took the pointer (a hovered
-            // handle, a live drag, or a click on the panel).
-            *grabbing = result.capture.pointer;
-            // The shape the UI wants for what the pointer is over: the gizmo's open hand
-            // over a handle, the closed one while dragging, whatever a control under it
-            // asks for otherwise. Applied in the render callback, which has the window.
-            *cursor = ui.cursor();
-        }
-    })
-    .run({
-        let app = app.clone();
-        move |ctx| {
-            let vp_px = ctx.viewport_size();
-
-            // Push the object's current transform to the scene first, before the text
-            // measurer borrows the frame's resources.
+            },
             {
-                let a = app.borrow();
-                if let Some(node) = a.node {
-                    ctx.scene_mut().set_local_transform(node, a.current);
-                }
-            }
+                let app = app.clone();
+                move |ctx| {
+                    let vp_px = ctx.viewport_size();
 
-            let measure = ShapedTextMeasurer::new(ctx.resources(), no_fonts);
-            let a = app.borrow();
-            if let Some(shape) = map_cursor(&a.cursor) {
-                ctx.set_cursor(shape);
-            }
-            let composed = expand_customs(&a.screen, &a.registry, &NoSource, &NoData, &measure);
-            let themed = theme_resolve(&composed, &a.theme);
-            let list = render_customs(
-                &themed,
-                vp_px,
-                &measure,
-                &Scroll::default(),
-                &a.registry,
-                &NoSource,
-                &NoData,
-            );
-            extend_frame(&list, ctx.overlays_mut(), &no_textures, &no_fonts);
-        }
-    });
+                    // Push the object's current transform to the scene first, before the text
+                    // measurer borrows the frame's resources.
+                    {
+                        let a = app.borrow();
+                        if let Some(node) = a.node {
+                            ctx.scene_mut().set_local_transform(node, a.current);
+                        }
+                    }
+
+                    let measure = ShapedTextMeasurer::new(ctx.resources(), no_fonts);
+                    let a = app.borrow();
+                    if let Some(shape) = map_cursor(&a.cursor) {
+                        ctx.set_cursor(shape);
+                    }
+                    let composed =
+                        expand_customs(&a.screen, &a.registry, &NoSource, &NoData, &measure);
+                    let themed = theme_resolve(&composed, &a.theme);
+                    let list = render_customs(
+                        &themed,
+                        vp_px,
+                        &measure,
+                        &Scroll::default(),
+                        &a.registry,
+                        &NoSource,
+                        &NoData,
+                    );
+                    extend_frame(&list, ctx.overlays_mut(), &no_textures, &no_fonts);
+                }
+            },
+        )
+        .run();
 }
