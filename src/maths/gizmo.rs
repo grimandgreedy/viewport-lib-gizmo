@@ -460,25 +460,30 @@ pub fn compute_gizmo_scale(
     world_per_px * target_px
 }
 
-/// Turn a cursor position into a world-space ray from the camera eye.
+/// Turn a cursor position into the world-space view ray under it.
 ///
 /// Returns `(ray_origin, ray_dir)` with `ray_dir` normalised. `cursor_viewport`
-/// is in viewport pixels with a top-left origin (Y down). Feed the result to
-/// [`Gizmo::hit_test`] from a cursor, or use it to build a custom picker.
+/// is in viewport pixels with a top-left origin (Y down). A perspective ray
+/// starts at the camera eye; an orthographic one starts on the near plane under
+/// the cursor and runs along the view direction, since orthographic rays are
+/// parallel. Feed the result to [`Gizmo::hit_test`] from a cursor, or use it to
+/// build a custom picker.
 pub fn cursor_ray(
     camera: &viewport_lib_types::camera::Camera,
     cursor_viewport: glam::Vec2,
     viewport_size: glam::Vec2,
 ) -> (glam::Vec3, glam::Vec3) {
-    let view_proj = camera.proj_matrix() * camera.view_matrix();
+    let inv_view_proj = (camera.proj_matrix() * camera.view_matrix()).inverse();
     let ndc_x = (cursor_viewport.x / viewport_size.x.max(1.0)) * 2.0 - 1.0;
     let ndc_y = 1.0 - (cursor_viewport.y / viewport_size.y.max(1.0)) * 2.0;
-    let far_world = view_proj
-        .inverse()
-        .project_point3(glam::Vec3::new(ndc_x, ndc_y, 1.0));
-    let eye = camera.eye_position();
-    let dir = (far_world - eye).normalize_or(glam::Vec3::NEG_Z);
-    (eye, dir)
+    let far_world = inv_view_proj.project_point3(glam::Vec3::new(ndc_x, ndc_y, 1.0));
+    let origin = if camera.projection == viewport_lib_types::camera::Projection::Orthographic {
+        inv_view_proj.project_point3(glam::Vec3::new(ndc_x, ndc_y, 0.0))
+    } else {
+        camera.eye_position()
+    };
+    let dir = (far_world - origin).normalize_or(glam::Vec3::NEG_Z);
+    (origin, dir)
 }
 
 // ---------------------------------------------------------------------------
@@ -987,5 +992,40 @@ mod tests {
         assert!(matches!(g.pivot_mode, PivotMode::IndividualOrigins));
         g.cycle_pivot_backward();
         assert!(matches!(g.pivot_mode, PivotMode::SelectionCentroid));
+    }
+
+    /// The cursor placed on a handle's projected position hovers that handle,
+    /// on and off the screen centre, under both projections.
+    #[test]
+    fn cursor_ray_hits_the_handle_under_the_cursor() {
+        use viewport_lib_types::camera::{Camera, Projection};
+        let vp = glam::Vec2::new(400.0, 400.0);
+        for projection in [Projection::Perspective, Projection::Orthographic] {
+            for x in [0.0, 1.5, 3.0] {
+                let mut camera = Camera::default();
+                camera.center = glam::Vec3::ZERO;
+                camera.distance = 10.0;
+                camera.orientation = glam::Quat::IDENTITY;
+                camera.aspect = 1.0;
+                camera.projection = projection;
+                let centre = glam::Vec3::new(x, 0.0, 0.0);
+                let scale = compute_gizmo_scale(centre, camera.eye_position(), camera.fov_y, vp.y);
+                let handle = centre + glam::Vec3::Y * scale * 0.6;
+                let clip = (camera.proj_matrix() * camera.view_matrix()) * handle.extend(1.0);
+                let ndc = clip.truncate() / clip.w;
+                let cursor = glam::Vec2::new(
+                    (ndc.x * 0.5 + 0.5) * vp.x,
+                    (1.0 - (ndc.y * 0.5 + 0.5)) * vp.y,
+                );
+                let (origin, dir) = cursor_ray(&camera, cursor, vp);
+                let hit =
+                    gizmo().hit_test_oriented(origin, dir, centre, scale, glam::Quat::IDENTITY);
+                assert_eq!(
+                    hit,
+                    GizmoAxis::Y,
+                    "{projection:?} with the gizmo at x = {x}"
+                );
+            }
+        }
     }
 }
