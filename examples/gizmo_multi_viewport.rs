@@ -140,6 +140,16 @@ fn to_view(ev: &ViewportEvent, origin: Vec2) -> ViewportEvent {
     }
 }
 
+/// Events every view takes, whichever one has the pointer. A view that missed a
+/// modifier's release would read the modifier as still held, and its left drag
+/// would stop orbiting.
+fn every_view(ev: &ViewportEvent) -> bool {
+    matches!(
+        ev,
+        ViewportEvent::ModifiersChanged(_) | ViewportEvent::FocusLost
+    )
+}
+
 fn main() {
     let state = Rc::new(RefCell::new(State::default()));
     let setup_state = state.clone();
@@ -265,6 +275,7 @@ fn main() {
                         ViewportEvent::MouseButton { state, .. } => {
                             s.button_held = *state == ButtonState::Pressed;
                         }
+                        ViewportEvent::FocusLost => s.button_held = false,
                         // Tab or Q cycles the mode; backtick toggles relative /
                         // objective. cycle_mode is ignored during a session.
                         ViewportEvent::Key {
@@ -294,11 +305,10 @@ fn main() {
                     };
                     view.input
                         .begin_frame(ViewportContext::with_ownership(ownership, size.into()));
-                    if active == Some(i) {
-                        for ev in &events {
-                            if forward_to_viewport(ev, ownership) {
-                                view.input.push_event(to_view(ev, origin));
-                            }
+                    let taking = active == Some(i);
+                    for ev in &events {
+                        if every_view(ev) || (taking && forward_to_viewport(ev, ownership)) {
+                            view.input.push_event(to_view(ev, origin));
                         }
                     }
                     view.orbit.set_viewport_size(size.into());
