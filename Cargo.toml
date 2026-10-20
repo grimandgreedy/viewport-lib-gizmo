@@ -53,6 +53,12 @@ viewport-lib-types = { path = "../../viewport-lib/crates/viewport-lib-types" }
 name = "gizmo_basic"
 path = "examples/gizmo_basic.rs"
 
+# One gizmo across a four-view layout (perspective plus orthographic top, front
+# and right), each view rendered through viewport-lib's multi-viewport API.
+[[example]]
+name = "gizmo_multi_viewport"
+path = "examples/gizmo_multi_viewport.rs"
+
 # An eframe app whose sidebar restyles the gizmo live.
 [[example]]
 name = "gizmo_styling"

@@ -24,11 +24,13 @@
 
 pub mod driver;
 pub mod types;
+mod views;
 
 mod session;
 
 pub use driver::{FrameInput, GizmoDriver};
 pub use types::*;
+pub use views::ActiveView;
 
 use crate::maths::gizmo::{Gizmo, GizmoAxis, GizmoMode, GizmoSpace};
 use crate::maths::snap::{SnapConfig, snap_value, snap_vec3};

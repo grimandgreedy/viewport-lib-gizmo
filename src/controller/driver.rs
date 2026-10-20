@@ -24,6 +24,9 @@ use super::types::{
 };
 use crate::maths::gizmo::{self, Gizmo, GizmoAxis, GizmoMode, GizmoSpace};
 use crate::maths::snap::SnapConfig;
+use crate::overlay::builder::build_gizmo_overlays;
+use crate::overlay::style::GizmoStyle;
+use viewport_lib_types::overlay::{OverlayPolylineItem, OverlayShapeItem};
 
 /// The per-frame inputs the driver needs.
 ///
@@ -217,6 +220,65 @@ impl GizmoDriver {
             orientation: glam::Quat::IDENTITY,
             mode: self.gizmo.mode,
         })
+    }
+
+    /// The axis to brighten in one view. While a session runs, every view shows
+    /// the axis or plane being changed; otherwise only the view that drives the
+    /// driver (`driving_view`) shows the hovered axis, since the cursor is over
+    /// that view alone.
+    pub fn highlight(&self, driving_view: bool) -> GizmoAxis {
+        if let Some(state) = self.controller.state() {
+            return match (state.axis, state.exclude_axis) {
+                (Some(GizmoAxis::X), true) => GizmoAxis::YZ,
+                (Some(GizmoAxis::Y), true) => GizmoAxis::XZ,
+                (Some(GizmoAxis::Z), true) => GizmoAxis::XY,
+                (Some(axis), _) => axis,
+                (None, _) => GizmoAxis::None,
+            };
+        }
+        if driving_view {
+            self.gizmo.hovered_axis
+        } else {
+            GizmoAxis::None
+        }
+    }
+
+    /// Build the gizmo's overlay items for one view, sized for that view's own
+    /// camera and height. With several views of one scene, drive the driver from
+    /// one of them and call this for each, passing `driving_view = true` for the
+    /// one that drove it. Builds nothing when there is no selection.
+    pub fn build_view_overlays(
+        &self,
+        style: &GizmoStyle,
+        camera: &Camera,
+        viewport_size: Vec2,
+        driving_view: bool,
+        shapes: &mut Vec<OverlayShapeItem>,
+        polylines: &mut Vec<OverlayPolylineItem>,
+    ) {
+        let Some(centre) = self.gizmo_center else {
+            return;
+        };
+        let scale = gizmo::compute_gizmo_scale(
+            centre,
+            camera.eye_position(),
+            camera.fov_y,
+            viewport_size.y,
+        );
+        let forward = (camera.center - camera.eye_position()).normalize_or(Vec3::NEG_Z);
+        build_gizmo_overlays(
+            style,
+            self.gizmo.mode,
+            camera.proj_matrix() * camera.view_matrix(),
+            forward,
+            [viewport_size.x, viewport_size.y],
+            centre,
+            scale,
+            self.highlight(driving_view),
+            glam::Quat::IDENTITY,
+            shapes,
+            polylines,
+        );
     }
 
     /// Drive the gizmo for one frame: size it, update the hovered axis, assemble

@@ -60,6 +60,6 @@ pub use viewport_lib_types::overlay::{AnchorX, AnchorY, OverlayOrigin};
 
 // Layer 3: the controller and the per-frame driver.
 pub use controller::{
-    FrameInput, GizmoDriver, GizmoInfo, ManipResult, ManipulationContext, ManipulationController,
-    ManipulationKind, ManipulationState, TransformDelta, ValueMode,
+    ActiveView, FrameInput, GizmoDriver, GizmoInfo, ManipResult, ManipulationContext,
+    ManipulationController, ManipulationKind, ManipulationState, TransformDelta, ValueMode,
 };

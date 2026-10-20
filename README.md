@@ -102,6 +102,49 @@ snap.rotation = Some(std::f32::consts::PI / 12.0);
 let driver = GizmoDriver::new().with_snap(snap);
 ```
 
+### Several views
+
+For a split layout (a CAD quad view, say) that shows one selection from several
+cameras, use one `GizmoDriver` for the selection, not one per view: the driver
+holds the session, and separate drivers would each start their own.
+
+Each frame, drive it from one view and draw it in all of them:
+
+```rust,ignore
+let mut active = ActiveView::new();
+
+// Each frame:
+let view = active.current(hovered_view);         // the view under the cursor, held during a drag
+let i = view.unwrap_or(0);
+driver.update(FrameInput {
+    camera: &cameras[i],
+    viewport_size: sizes[i],
+    cursor_viewport: view.and(cursor_in_view_i),  // in that view's own pixels
+    ..
+});
+active.end_frame(view, button_held || driver.is_active());
+
+for (j, frame) in frames.iter_mut().enumerate() {
+    driver.build_view_overlays(
+        &style,
+        &cameras[j],
+        sizes[j],
+        view == Some(j),
+        &mut frame.overlays.shapes,
+        &mut frame.overlays.polylines,
+    );
+}
+```
+
+`ActiveView` keeps a drag or a G / R / S session on the view it started in: the
+drag is measured in that view's pixels and through its camera, so switching
+views part way would make the object jump. `build_view_overlays` sizes the gizmo
+for each view's own camera and height. Only the driving view shows the hovered
+handle; while a session runs, every view shows the axis being changed.
+
+`cursor_ray` handles orthographic cameras, so the handles can be grabbed in
+orthographic top, front and side views as well as in perspective.
+
 ## The `ui` feature
 
 `ui` adds the `ui` module, which hosts the gizmo as a
@@ -125,6 +168,7 @@ viewport-lib-gizmo = { path = "...", features = ["ui"] }
 cargo run --example gizmo_basic                 # ViewportApp, one cube, default style
 cargo run --example gizmo_styling               # eframe, sidebar restyles the gizmo live
 cargo run --example gizmo_ui --features ui      # the gizmo as a viewport-lib-ui widget
+cargo run --example gizmo_multi_viewport        # four views, one gizmo, three of them orthographic
 ```
 
 In all of them, Tab or Q cycles the mode and backtick toggles relative /
