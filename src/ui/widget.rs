@@ -26,6 +26,7 @@
 //! A live drag or keyboard session keeps the pointer wherever it travels.
 
 use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 use glam::{Quat, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
@@ -42,7 +43,6 @@ use crate::controller::{GizmoDriver, ManipResult, TransformDelta, ValueMode};
 use crate::maths::gizmo::{self, GizmoAxis, GizmoMode, GizmoSpace};
 use crate::overlay::builder::build_gizmo_overlays;
 use crate::overlay::style::GizmoStyle;
-
 
 /// The default `kind` string to register [`GizmoTool`] under.
 pub const GIZMO_KIND: &str = "gizmo";
@@ -175,10 +175,24 @@ impl Default for FrameState {
     }
 }
 
+/// The driver behind one or more tools, and which of them drives it.
+struct Shared {
+    driver: RefCell<GizmoDriver>,
+    /// The tool that drives the driver: the one last hovered while no session
+    /// ran. A session stays with the tool it started in.
+    holder: Cell<usize>,
+    next_id: Cell<usize>,
+}
+
 /// The gizmo as a viewport-lib-ui custom widget. Construct one, register an `Arc`
 /// of it, and drive it with [`set_frame`](Self::set_frame) each frame.
+///
+/// For a split layout that shows one selection in several views, give each view
+/// its own tool built with [`sharing`](Self::sharing). The tools share one
+/// driver, so a drag or a G / R / S session moves the selection once.
 pub struct GizmoTool {
-    driver: RefCell<GizmoDriver>,
+    shared: Rc<Shared>,
+    id: usize,
     frame: RefCell<FrameState>,
     style: RefCell<GizmoStyle>,
     last_cursor: Cell<Option<Vec2>>,
@@ -201,13 +215,45 @@ impl GizmoTool {
     /// A tool with a chosen style.
     pub fn with_style(style: GizmoStyle) -> Self {
         Self {
-            driver: RefCell::new(GizmoDriver::new()),
+            shared: Rc::new(Shared {
+                driver: RefCell::new(GizmoDriver::new()),
+                holder: Cell::new(0),
+                next_id: Cell::new(1),
+            }),
+            id: 0,
             frame: RefCell::new(FrameState::default()),
             style: RefCell::new(style),
             last_cursor: Cell::new(None),
             show_readout: Cell::new(true),
             readout_when: Cell::new(ReadoutWhen::Always),
         }
+    }
+
+    /// A tool for another view of the same selection, sharing `other`'s driver
+    /// and starting with its style.
+    ///
+    /// The tool under the pointer drives the shared driver; the others only
+    /// paint, each sized for its own camera. A drag or a G / R / S session stays
+    /// with the tool it started in until it ends, and while it runs every tool
+    /// shows the axis being changed. Mode, space and value mode are shared.
+    pub fn sharing(other: &GizmoTool) -> Self {
+        let id = other.shared.next_id.get();
+        other.shared.next_id.set(id + 1);
+        Self {
+            shared: other.shared.clone(),
+            id,
+            frame: RefCell::new(FrameState::default()),
+            style: RefCell::new(other.style.borrow().clone()),
+            last_cursor: Cell::new(None),
+            show_readout: Cell::new(other.show_readout.get()),
+            readout_when: Cell::new(other.readout_when.get()),
+        }
+    }
+
+    /// Whether this tool drives the shared driver this frame. Always true for a
+    /// tool that shares with no other.
+    pub fn is_driving(&self) -> bool {
+        self.shared.holder.get() == self.id
     }
 
     /// Whether the numeric readout panel should be shown. Defaults to `true`. The
@@ -277,40 +323,40 @@ impl GizmoTool {
 
     /// The current gizmo mode (translate / rotate / scale).
     pub fn mode(&self) -> GizmoMode {
-        self.driver.borrow().mode()
+        self.shared.driver.borrow().mode()
     }
 
     /// Set the gizmo mode. Ignored while a session is active.
     pub fn set_mode(&self, mode: GizmoMode) {
-        self.driver.borrow_mut().set_mode(mode);
+        self.shared.driver.borrow_mut().set_mode(mode);
     }
 
     /// Set the gizmo space (world / local).
     pub fn set_space(&self, space: GizmoSpace) {
-        self.driver.borrow_mut().set_space(space);
+        self.shared.driver.borrow_mut().set_space(space);
     }
 
     /// Whether values are read relative to the start pose or as absolute
     /// (objective) world values.
     pub fn value_mode(&self) -> ValueMode {
-        self.driver.borrow().value_mode()
+        self.shared.driver.borrow().value_mode()
     }
 
     /// Set the value mode. Pair this with the segmented control from
     /// [`value_mode_segmented`](super::readout::value_mode_segmented).
     pub fn set_value_mode(&self, mode: ValueMode) {
-        self.driver.borrow_mut().set_value_mode(mode);
+        self.shared.driver.borrow_mut().set_value_mode(mode);
     }
 
     /// True while a drag or a keyboard session is in progress.
     pub fn is_active(&self) -> bool {
-        self.driver.borrow().is_active()
+        self.shared.driver.borrow().is_active()
     }
 
     /// The readout string for the active session, or `None` when idle. Feed it to a
     /// sibling text widget.
     pub fn readout(&self) -> Option<String> {
-        self.driver.borrow().readout()
+        self.shared.driver.borrow().readout()
     }
 }
 
@@ -337,7 +383,7 @@ impl CustomWidget for GizmoTool {
         let scale =
             gizmo::compute_gizmo_scale(centre, camera.eye_position(), camera.fov_y, viewport[1]);
 
-        let driver = self.driver.borrow();
+        let driver = self.shared.driver.borrow();
         let mut shapes = Vec::new();
         let mut polylines = Vec::new();
         build_gizmo_overlays(
@@ -348,7 +394,7 @@ impl CustomWidget for GizmoTool {
             viewport,
             centre,
             scale,
-            driver.hovered_axis(),
+            driver.highlight(self.is_driving()),
             frame.space_orientation,
             &mut shapes,
             &mut polylines,
@@ -361,6 +407,19 @@ impl CustomWidget for GizmoTool {
     }
 
     fn input(&self, ctx: &CustomCtx, rect: Rect, input: &Input) -> CustomInput {
+        // With several tools on one driver, the hovered one takes over while no
+        // session runs, and only the holder drives, so the driver sees each
+        // frame's input once.
+        if !self.shared.driver.borrow().is_active() && ctx.state.hovered {
+            self.shared.holder.set(self.id);
+        }
+        if !self.is_driving() {
+            // Forget the cursor, so the first frame back does not read the whole
+            // way the pointer travelled meanwhile as one move.
+            self.last_cursor.set(None);
+            return CustomInput::default();
+        }
+
         let (camera, centre, action_frame) = {
             let frame = self.frame.borrow();
             (
@@ -383,7 +442,7 @@ impl CustomWidget for GizmoTool {
         // the toolkit reports which widget the pointer is really on, and chrome above
         // the pane owns it. A live session keeps the pointer wherever it travels, so a
         // drag or a keyboard move carries on across a panel.
-        let session_live = self.driver.borrow().is_active();
+        let session_live = self.shared.driver.borrow().is_active();
         let ours = ctx.state.hovered || session_live;
         // Withhold the cursor when it is not ours, so the hit-test clears the hovered
         // handle instead of lighting one up under a panel.
@@ -392,7 +451,7 @@ impl CustomWidget for GizmoTool {
         // The host's resolved action frame carries keyboard g/r/s and numeric entry;
         // the pointer flags below drive the gizmo drag. The controller reads each from
         // its own source, so they compose.
-        let result = self.driver.borrow_mut().update(FrameInput {
+        let result = self.shared.driver.borrow_mut().update(FrameInput {
             action_frame: &action_frame,
             camera: &camera,
             viewport_size: viewport,
@@ -405,7 +464,7 @@ impl CustomWidget for GizmoTool {
         });
 
         let (active, hovered) = {
-            let driver = self.driver.borrow();
+            let driver = self.shared.driver.borrow();
             (driver.is_active(), driver.hovered_axis())
         };
         // Hold the pointer while a handle is hovered or a drag is live, so the camera
@@ -763,6 +822,91 @@ mod tests {
             Cursor::Grabbing,
             "and a closed one once it is taken"
         );
+    }
+
+    #[test]
+    fn a_lone_tool_always_drives() {
+        let tool = GizmoTool::new();
+        assert!(tool.is_driving());
+    }
+
+    #[test]
+    fn shared_tools_drive_from_the_hovered_view() {
+        let a = GizmoTool::new();
+        let b = GizmoTool::sharing(&a);
+        let cam = camera();
+        a.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
+        b.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
+        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
+        let on_handle = Input::at(x_handle_cursor(&cam).to_array());
+
+        // The pointer is over B's pane: A yields, B takes the handle.
+        let from_a = a.input(
+            &ctx_hovered(&params, &src, &data, false),
+            full_rect(),
+            &on_handle,
+        );
+        let from_b = b.input(&ctx(&params, &src, &data), full_rect(), &on_handle);
+        assert!(b.is_driving() && !a.is_driving());
+        assert!(!from_a.capture_pointer && from_a.output.is_none());
+        assert!(from_b.capture_pointer, "the hovered view takes the handle");
+    }
+
+    #[test]
+    fn a_drag_stays_with_the_view_it_started_in() {
+        let a = GizmoTool::new();
+        let b = GizmoTool::sharing(&a);
+        let cam = camera();
+        a.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
+        b.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
+        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
+        let start = x_handle_cursor(&cam);
+
+        // Begin the drag in A.
+        a.input(
+            &ctx(&params, &src, &data),
+            full_rect(),
+            &Input::at(start.to_array()).press(),
+        );
+        assert!(a.is_active());
+
+        // The pointer crosses into B's pane with the button held. B does not take
+        // over; A keeps reporting the drag.
+        let mut held = Input::at([start.x + 60.0, start.y]);
+        held.primary_down = true;
+        let from_b = b.input(&ctx(&params, &src, &data), full_rect(), &held);
+        let from_a = a.input(
+            &ctx_hovered(&params, &src, &data, false),
+            full_rect(),
+            &held,
+        );
+        assert!(a.is_driving() && !b.is_driving());
+        assert!(from_b.output.is_none(), "the other view stays quiet");
+        assert!(from_a.output.is_some(), "the starting view keeps the drag");
+
+        // Release ends the session; the hovered view drives again.
+        let mut released = Input::at([start.x + 60.0, start.y]);
+        released.primary_released = true;
+        a.input(
+            &ctx_hovered(&params, &src, &data, false),
+            full_rect(),
+            &released,
+        );
+        assert!(!a.is_active());
+        b.input(
+            &ctx(&params, &src, &data),
+            full_rect(),
+            &Input::at([5.0, 5.0]),
+        );
+        assert!(b.is_driving());
+    }
+
+    #[test]
+    fn shared_tools_share_the_mode() {
+        let a = GizmoTool::new();
+        let b = GizmoTool::sharing(&a);
+        a.set_mode(GizmoMode::Rotate);
+        assert_eq!(b.mode(), GizmoMode::Rotate);
     }
 
     #[test]

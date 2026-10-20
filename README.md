@@ -155,6 +155,11 @@ the gizmo or the camera. Results come back as a typed `GizmoResult`. The module
 also has a readout panel: an x / y / z vector field with a relative / objective
 toggle and a badge for the current mode.
 
+For several views of one selection, put a tool in each view's pane and build
+all but the first with `GizmoTool::sharing(&first)`. The tools share one driver:
+the pane the pointer is on drives it, a drag or a G / R / S session stays with
+the pane it started in, and the others paint the gizmo for their own camera.
+
 The feature pulls only `viewport-lib-ui-core` and `viewport-lib-ui-document`,
 which are renderer-free, so it still does not depend on viewport-lib or wgpu.
 
@@ -169,6 +174,7 @@ cargo run --example gizmo_basic                 # ViewportApp, one cube, default
 cargo run --example gizmo_styling               # eframe, sidebar restyles the gizmo live
 cargo run --example gizmo_ui --features ui      # the gizmo as a viewport-lib-ui widget
 cargo run --example gizmo_multi_viewport        # four views, one gizmo, three of them orthographic
+cargo run --example gizmo_ui_multi_viewport --features ui   # the same four views through the ui widget
 ```
 
 In all of them, Tab or Q cycles the mode and backtick toggles relative /

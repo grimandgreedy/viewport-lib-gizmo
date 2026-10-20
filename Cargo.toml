@@ -70,3 +70,10 @@ path = "examples/gizmo_styling.rs"
 name = "gizmo_ui"
 path = "examples/gizmo_ui.rs"
 required-features = ["ui"]
+
+# The ui frontend across a four-view layout: one GizmoTool per view, all sharing
+# one driver. Needs the `ui` feature.
+[[example]]
+name = "gizmo_ui_multi_viewport"
+path = "examples/gizmo_ui_multi_viewport.rs"
+required-features = ["ui"]
