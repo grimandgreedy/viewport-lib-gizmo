@@ -17,11 +17,11 @@ ui = ["dep:viewport-lib-ui-core", "dep:viewport-lib-ui-document", "dep:serde"]
 
 [dependencies]
 glam = { version = "=0.30.10", features = ["bytemuck"] }
-viewport-lib-types = { path = "../viewport-lib/crates/viewport-lib-types" }
+viewport-lib-types = { path = "../../viewport-lib/crates/viewport-lib-types" }
 # Only under the `ui` feature. Layout, interaction, and the DrawCommand vocabulary,
 # with no viewport-lib or wgpu dependency; document is the serializable widget tree.
-viewport-lib-ui-core = { path = "../viewport-lib-ui/crates/core", optional = true }
-viewport-lib-ui-document = { path = "../viewport-lib-ui/crates/document", optional = true }
+viewport-lib-ui-core = { path = "../../viewport-lib-ui/crates/core", optional = true }
+viewport-lib-ui-document = { path = "../../viewport-lib-ui/crates/document", optional = true }
 # Only under `ui`. Lets the tool report its transform delta as a typed result the
 # host reads back, and define the output schema. Pure Rust, no renderer.
 serde = { version = "1", optional = true, features = ["derive"] }
@@ -30,7 +30,7 @@ serde = { version = "1", optional = true, features = ["derive"] }
 # The renderer is needed only by examples that draw the overlay items, not by
 # the library itself. The `app` feature adds the `ViewportApp` fullscreen runner
 # used by the rendering examples.
-viewport-lib = { path = "../viewport-lib/crates/viewport-lib", features = [
+viewport-lib = { path = "../../viewport-lib/crates/viewport-lib", features = [
     "app",
     "egui-adapter",
 ] }
@@ -40,13 +40,13 @@ eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "d
 # The vpl-ui frontend example runs the toolkit end to end: it lowers the DrawList
 # to overlay items, translates input, and measures text. Only the example needs
 # the facade; the library's `ui` feature stays on the renderer-free sub-crates.
-viewport-lib-ui = { path = "../viewport-lib-ui/crates/ui" }
+viewport-lib-ui = { path = "../../viewport-lib-ui/crates/ui" }
 
 # The facade depends on viewport-lib by version; point it at the same local crate
 # the gizmo uses so the overlay item types are one and the same.
 [patch.crates-io]
-viewport-lib = { path = "../viewport-lib/crates/viewport-lib" }
-viewport-lib-types = { path = "../viewport-lib/crates/viewport-lib-types" }
+viewport-lib = { path = "../../viewport-lib/crates/viewport-lib" }
+viewport-lib-types = { path = "../../viewport-lib/crates/viewport-lib-types" }
 
 # A gizmo drawn over one object, driven end to end with the ViewportApp runner.
 [[example]]
