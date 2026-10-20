@@ -26,10 +26,10 @@ use glam::{Mat4, Quat, Vec2, Vec3};
 use viewport_lib as vpl;
 use vpl::scene::Scene;
 use vpl::{
-    ActionFrame, AppConfig, BindingPreset, BlitTexture, ButtonState, Camera, CameraFrame, Colour,
-    FrameData, KeyCode, LabelItem, Material, NodeId, OffscreenViewportTarget,
-    OrbitCameraController, Projection, SceneFrame, Selection, ViewportContext, ViewportEvent,
-    ViewportId, ViewportInput, WindowConfig, primitives,
+    AppConfig, BindingPreset, BlitTexture, ButtonState, Camera, CameraFrame, Colour, FrameData,
+    KeyCode, LabelItem, Material, NodeId, OffscreenViewportTarget, OrbitCameraController,
+    PointerOwnership, Projection, SceneFrame, Selection, ViewportContext, ViewportEvent,
+    ViewportId, ViewportInput, WindowConfig, forward_to_viewport, primitives,
 };
 
 use viewport_lib_gizmo::{
@@ -66,7 +66,8 @@ struct State {
     last_active: Option<usize>,
     /// True while any pointer button is down: a drag stays on its view.
     button_held: bool,
-    /// True while a handle is hovered or a session runs: orbit is suppressed.
+    /// True while a handle is hovered or a session runs: the left button and
+    /// pointer moves are the gizmo's, not the camera's.
     grabbing: bool,
     views: Vec<View>,
     /// Each view's rect in the window, in physical pixels: `[x, y, w, h]`.
@@ -191,7 +192,8 @@ fn main() {
                 let [wl, _] = ctx.viewport_size();
                 let ppp = pw as f32 / wl.max(1.0);
                 let dt = ctx.dt();
-                let cursor = ctx.action_frame().pointer.cursor;
+                let action = ctx.action_frame().clone();
+                let cursor = action.pointer.cursor;
                 let events: Vec<ViewportEvent> = ctx.events().to_vec();
 
                 let mut guard = state.borrow_mut();
@@ -278,35 +280,39 @@ fn main() {
                     }
                 }
 
-                // Resolve each view's input; only the driving view receives events.
-                // Orbit is held still while a handle is grabbed.
-                let mut frames: Vec<ActionFrame> = Vec::with_capacity(4);
+                // Navigation; only the driving view receives events. While a handle
+                // is hovered or a session runs, a left press or pointer move is the
+                // gizmo's and does not also orbit; the wheel, modifier changes and
+                // the other buttons still reach the camera, so zooming and panning
+                // keep working over a handle.
                 for (i, view) in s.views.iter_mut().enumerate() {
                     let (origin, size) = logical[i];
-                    let driving = active == Some(i);
-                    view.input.begin_frame(ViewportContext {
-                        hovered: driving,
-                        focused: driving,
-                        viewport_size: size.into(),
-                    });
-                    if driving {
+                    let ownership = match active == Some(i) {
+                        false => PointerOwnership::Elsewhere,
+                        true if s.grabbing => PointerOwnership::Inside,
+                        true => PointerOwnership::Owned,
+                    };
+                    view.input
+                        .begin_frame(ViewportContext::with_ownership(ownership, size.into()));
+                    if active == Some(i) {
                         for ev in &events {
-                            view.input.push_event(to_view(ev, origin));
+                            if forward_to_viewport(ev, ownership) {
+                                view.input.push_event(to_view(ev, origin));
+                            }
                         }
                     }
-                    let actions = view.input.resolve();
                     view.orbit.set_viewport_size(size.into());
-                    if !(driving && s.grabbing) {
-                        view.orbit.apply(&mut view.camera, &actions, dt);
-                    }
+                    view.orbit
+                        .apply(&mut view.camera, &view.input.resolve(), dt);
                     view.camera.set_aspect_ratio(size.x, size.y);
-                    frames.push(actions);
                 }
 
-                // Drive the gizmo from one view. With the cursor outside the
-                // window, view 0 keeps it sized and placed, with no cursor.
+                // Drive the gizmo from one view, with the window's unfiltered input
+                // and the cursor moved into that view's pixels. With the cursor
+                // outside the window, view 0 keeps it sized and placed, with no
+                // cursor.
                 let driver_view = active.unwrap_or(0);
-                let actions = &frames[driver_view];
+                let actions = &action;
                 let pointer = actions.pointer;
                 let centre = s.current.col(3).truncate();
                 let result = s.driver.update(FrameInput {
@@ -314,7 +320,7 @@ fn main() {
                     camera: &s.views[driver_view].camera,
                     viewport_size: logical[driver_view].1,
                     cursor_viewport: if active.is_some() {
-                        pointer.cursor
+                        pointer.cursor.map(|c| c - logical[driver_view].0)
                     } else {
                         None
                     },

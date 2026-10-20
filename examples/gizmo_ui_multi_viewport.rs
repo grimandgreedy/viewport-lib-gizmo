@@ -26,10 +26,10 @@ use glam::{Mat4, Quat, Vec2, Vec3};
 use viewport_lib as vpl;
 use vpl::scene::Scene;
 use vpl::{
-    ActionFrame, AppConfig, BindingPreset, BlitTexture, ButtonState, Camera, CameraFrame,
-    FrameData, KeyCode, LabelItem, Material, NodeId, OffscreenViewportTarget,
-    OrbitCameraController, Projection, SceneFrame, Selection, ViewportContext, ViewportEvent,
-    ViewportId, ViewportInput, WindowConfig, primitives,
+    AppConfig, BindingPreset, BlitTexture, ButtonState, Camera, CameraFrame, FrameData, KeyCode,
+    LabelItem, Material, NodeId, OffscreenViewportTarget, OrbitCameraController, PointerOwnership,
+    Projection, SceneFrame, Selection, ViewportContext, ViewportEvent, ViewportId, ViewportInput,
+    WindowConfig, forward_to_viewport, primitives,
 };
 
 use viewport_lib_ui::{
@@ -68,7 +68,8 @@ struct View {
     tool: Arc<GizmoTool>,
     screen: Screen,
     ui: UiState,
-    /// True when the toolkit took the pointer last frame: orbit holds still.
+    /// True when the toolkit took the pointer last frame: the left button and
+    /// pointer moves are the toolkit's, not the camera's.
     grabbing: bool,
     id: ViewportId,
     target: OffscreenViewportTarget,
@@ -220,7 +221,8 @@ fn main() {
                 let [wl, _] = ctx.viewport_size();
                 let ppp = pw as f32 / wl.max(1.0);
                 let dt = ctx.dt();
-                let cursor = ctx.action_frame().pointer.cursor;
+                let action = ctx.action_frame().clone();
+                let cursor = action.pointer.cursor;
                 let events: Vec<ViewportEvent> = ctx.events().to_vec();
 
                 let mut guard = state.borrow_mut();
@@ -328,29 +330,31 @@ fn main() {
                     }
                 }
 
-                // Each view resolves its own input; only the active view gets events.
-                // Orbit holds still in the view whose toolkit took the pointer.
-                let mut actions: Vec<ActionFrame> = Vec::with_capacity(4);
+                // Navigation; only the active view gets events. While a view's
+                // toolkit held the pointer last frame, a left press or pointer move
+                // is the toolkit's and does not also orbit; the wheel, modifier
+                // changes and the other buttons still reach the camera, so zooming
+                // and panning keep working over a handle.
                 for (i, view) in s.views.iter_mut().enumerate() {
                     let (origin, size) = logical[i];
-                    let driving = active == Some(i);
-                    view.input.begin_frame(ViewportContext {
-                        hovered: driving,
-                        focused: driving,
-                        viewport_size: size.into(),
-                    });
-                    if driving {
+                    let ownership = match active == Some(i) {
+                        false => PointerOwnership::Elsewhere,
+                        true if view.grabbing => PointerOwnership::Inside,
+                        true => PointerOwnership::Owned,
+                    };
+                    view.input
+                        .begin_frame(ViewportContext::with_ownership(ownership, size.into()));
+                    if active == Some(i) {
                         for ev in &events {
-                            view.input.push_event(to_view(ev, origin));
+                            if forward_to_viewport(ev, ownership) {
+                                view.input.push_event(to_view(ev, origin));
+                            }
                         }
                     }
-                    let resolved = view.input.resolve();
                     view.orbit.set_viewport_size(size.into());
-                    if !(driving && view.grabbing) {
-                        view.orbit.apply(&mut view.camera, &resolved, dt);
-                    }
+                    view.orbit
+                        .apply(&mut view.camera, &view.input.resolve(), dt);
                     view.camera.set_aspect_ratio(size.x, size.y);
-                    actions.push(resolved);
                 }
 
                 // Run each view's toolkit screen with the window input moved into the
@@ -368,8 +372,10 @@ fn main() {
                     let measure = ShapedTextMeasurer::new(ctx.resources(), no_fonts);
                     for (i, view) in s.views.iter_mut().enumerate() {
                         let (origin, size) = logical[i];
+                        // The window's unfiltered input, which carries the G / R / S keys
+                        // even while the camera has given up the pointer.
                         view.tool
-                            .set_frame(view.camera.clone(), Some(centre), actions[i].clone());
+                            .set_frame(view.camera.clone(), Some(centre), action.clone());
                         if let Some(w) = view.screen.root.find_mut(PANE) {
                             w.size = size.into();
                         }

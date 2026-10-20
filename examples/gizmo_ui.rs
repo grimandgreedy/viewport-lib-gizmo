@@ -30,8 +30,8 @@ use std::sync::Arc;
 use glam::{Mat4, Quat, Vec3};
 use viewport_lib as vpl;
 use vpl::{
-    AppConfig, ButtonState, KeyCode, Material, MouseButton, NodeId, OrbitCameraController,
-    ViewportApp, ViewportContext, ViewportEvent, WindowConfig, primitives,
+    AppConfig, ButtonState, KeyCode, Material, NodeId, OrbitCameraController, PointerOwnership,
+    ViewportApp, ViewportContext, ViewportEvent, WindowConfig, forward_to_viewport, primitives,
 };
 
 use viewport_lib_ui::{
@@ -222,13 +222,15 @@ fn main() {
                 let mut translator = InputTranslator::new();
                 move |ictx| {
                     let vp_px = ictx.viewport_size();
-                    orbit.begin_frame(ViewportContext {
-                        hovered: true,
-                        focused: true,
-                        viewport_size: vp_px,
-                    });
+                    // While vpl-ui held the pointer last frame, a left press or pointer
+                    // move is its own and does not also orbit.
+                    let ownership = if app.borrow().grabbing {
+                        PointerOwnership::Inside
+                    } else {
+                        PointerOwnership::Owned
+                    };
+                    orbit.begin_frame(ViewportContext::with_ownership(ownership, vp_px));
 
-                    let grabbing = app.borrow().grabbing;
                     let raw = ictx.events().to_vec();
 
                     // Input router. The host owns the camera; vpl-ui owns the panels and the
@@ -283,14 +285,7 @@ fn main() {
                         // holds the pointer. The wheel, modifier changes, and other buttons
                         // always reach the camera, so zoom, cmd+scroll orbit, and shift+scroll
                         // pan keep working even with the cursor over a handle.
-                        let left_drag = matches!(
-                            ev,
-                            ViewportEvent::MouseButton {
-                                button: MouseButton::Left,
-                                ..
-                            } | ViewportEvent::PointerMoved { .. }
-                        );
-                        if !(grabbing && left_drag) {
+                        if forward_to_viewport(ev, ownership) {
                             orbit.push_event(ev.clone());
                         }
 

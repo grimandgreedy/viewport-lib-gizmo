@@ -16,8 +16,8 @@ use glam::{Mat4, Vec2, Vec3};
 use viewport_lib as vpl;
 use vpl::{
     AppConfig, BindingPreset, ButtonState, Colour, KeyCode, Material, NodeId,
-    OrbitCameraController, ViewportApp, ViewportContext, ViewportEvent, ViewportInput,
-    WindowConfig, primitives,
+    OrbitCameraController, PointerOwnership, ViewportApp, ViewportContext, ViewportEvent,
+    ViewportInput, WindowConfig, forward_to_viewport, primitives,
 };
 
 use viewport_lib_gizmo::{
@@ -34,7 +34,8 @@ struct State {
     current: Mat4,
     driver: GizmoDriver,
     style: GizmoStyle,
-    /// True while a handle is hovered or a session is active: suppress orbit.
+    /// True while a handle is hovered or a session is active: the left button and
+    /// pointer moves are the gizmo's, not the camera's.
     grabbing: bool,
 }
 
@@ -99,7 +100,8 @@ fn main() {
                     s.current = transform;
                 }
             },
-            // Own navigation so orbit can be suppressed while a handle is grabbed.
+            // Own navigation so the gizmo can keep the left button while a handle is
+            // grabbed.
             {
                 let state = state.clone();
                 let mut orbit = OrbitCameraController::new_stateless();
@@ -110,12 +112,16 @@ fn main() {
                     // into one in world units; the events go to the input, which owns the scheme
                     // that reads them.
                     orbit.set_viewport_size(size);
-                    input.begin_frame(ViewportContext {
-                        hovered: true,
-                        focused: true,
-                        viewport_size: size,
-                    });
-                    let grabbing = state.borrow().grabbing;
+                    // While a handle is hovered or a session runs, a left press or
+                    // pointer move is the gizmo's and does not also orbit; the wheel,
+                    // modifier changes and the other buttons still reach the camera,
+                    // so zooming and panning keep working over a handle.
+                    let ownership = if state.borrow().grabbing {
+                        PointerOwnership::Inside
+                    } else {
+                        PointerOwnership::Owned
+                    };
+                    input.begin_frame(ViewportContext::with_ownership(ownership, size));
                     for ev in ictx.events().to_vec() {
                         // Tab or Q cycles the gizmo mode (translate -> rotate -> scale);
                         // backtick toggles relative / objective values. cycle_mode is
@@ -134,7 +140,7 @@ fn main() {
                             }
                         }
                         ictx.forward(ev.clone());
-                        if !grabbing {
+                        if forward_to_viewport(&ev, ownership) {
                             input.push_event(ev);
                         }
                     }
@@ -198,7 +204,8 @@ fn main() {
                         _ => {}
                     }
 
-                    // Suppress orbit next frame while a handle is hovered or a drag is on.
+                    // Keep the left button from the camera next frame while a handle is
+                    // hovered or a drag is on.
                     s.grabbing = s.driver.is_active()
                         || s.driver.hovered_axis() != viewport_lib_gizmo::GizmoAxis::None;
 
