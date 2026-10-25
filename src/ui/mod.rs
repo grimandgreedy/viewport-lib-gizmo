@@ -16,9 +16,11 @@
 //! produces `viewport-lib-types` overlay items) is unchanged and remains the path
 //! for consumers who submit to a renderer without the UI toolkit.
 
+mod frame;
 pub mod readout;
 pub mod widget;
 
+pub use frame::GizmoFrame;
 pub use readout::{
     ObjectPose, READOUT_BADGE_FONT, READOUT_CORNER_RADIUS, READOUT_PADDING, READOUT_SEGMENTED_FONT,
     READOUT_SPACING, ReadoutIds, mode_badge, mode_tag, readout_field, readout_panel,

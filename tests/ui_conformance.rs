@@ -5,31 +5,35 @@
 use std::sync::Arc;
 
 use glam::Vec3;
-use viewport_lib_gizmo::ui::{GIZMO_KIND, GizmoTool};
+use viewport_lib_gizmo::ui::{GIZMO_KIND, GizmoFrame, GizmoTool};
 use viewport_lib_types::camera::Camera;
-use viewport_lib_types::input::ActionFrame;
 use viewport_lib_ui_extend::events::UiEvent;
 use viewport_lib_ui_extend::serde_json;
+use viewport_lib_ui_extend::sources::HostMap;
 use viewport_lib_ui_test::Conformance;
 use viewport_lib_ui_test::conformance::{Check, Subject};
 
-/// The tool framed on a selection at the origin, so every pane has handles to draw
-/// and the drive the checks run lands on the gizmo's centre.
-fn tool() -> Arc<GizmoTool> {
+/// A frame on a selection at the origin, so every pane has handles to draw and the
+/// drive the checks run lands on the gizmo's centre.
+fn framed() -> HostMap<'static> {
     let camera = Camera {
         center: Vec3::ZERO,
         distance: 6.0,
         ..Camera::default()
     };
-    let tool = Arc::new(GizmoTool::new());
-    tool.set_frame(camera, Some(Vec3::ZERO), ActionFrame::default());
-    tool
+    HostMap::new().with_context(GizmoFrame::new(camera).with_selection_centre(Some(Vec3::ZERO)))
 }
 
 /// The run: the gizmo authors no params, so its nodes carry `null`. The boxes are
 /// larger than the default so the handles have room.
 fn conformance() -> Conformance {
-    Conformance::new(GIZMO_KIND, tool(), serde_json::Value::Null).sized([320.0, 240.0])
+    Conformance::new(
+        GIZMO_KIND,
+        Arc::new(GizmoTool::new()),
+        serde_json::Value::Null,
+    )
+    .sized([320.0, 240.0])
+    .with_map(framed())
 }
 
 #[test]

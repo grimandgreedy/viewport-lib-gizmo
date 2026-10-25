@@ -1,9 +1,9 @@
 //! A viewport-lib-ui `Custom` widget that draws and drives the gizmo.
 //!
 //! [`GizmoTool`] runs the existing [`GizmoDriver`] behind the toolkit's custom
-//! widget path. Each frame the host sets the camera and the selection pivot with
-//! [`set_frame`](GizmoTool::set_frame); the widget then paints the projected
-//! handles through the draw path, hit-tests and drags itself from the toolkit's
+//! widget path. Each frame the host puts the camera, the selection pivot and its
+//! resolved input on the frame's host map as a [`GizmoFrame`]; the widget then
+//! paints the projected handles through the draw path, hit-tests and drags itself from the toolkit's
 //! pointer input, captures the pointer only while a handle is hovered or a drag is
 //! live, and reports the transform as a typed [`GizmoResult`] the host reads back.
 //!
@@ -12,8 +12,8 @@
 //!
 //! # One tool, any number of panes
 //!
-//! Register one tool under [`GIZMO_KIND`] and keep an `Arc` of it to set its frame
-//! and read it back. Every `Custom` node of that kind is a pane of the same tool:
+//! Register one tool under [`GIZMO_KIND`] and keep an `Arc` of it to set its mode
+//! and read its session back. Every `Custom` node of that kind is a pane of the same tool:
 //! the panes show one selection and share one driver, so a drag or a G / R / S
 //! session moves the selection once however many views show it. The pane the
 //! pointer is on drives the driver, a session stays with the pane it started in
@@ -21,10 +21,10 @@
 //! and show the axis being changed. What a pane keeps between frames (the last
 //! cursor, the handle it has hovered) lives in the toolkit's per-node state.
 //!
-//! Each pane draws through the camera set for its widget id with
-//! [`set_view_camera`](GizmoTool::set_view_camera), and through the one given to
-//! [`set_frame`](GizmoTool::set_frame) when it has none. So panes on separate
-//! screens still need ids of their own.
+//! Each pane draws through the camera of the frame it is in, so a host with
+//! several views builds each view's frame with that view's [`GizmoFrame`]. The
+//! tool tells the driving pane by its widget id, so panes on separate screens
+//! still need ids of their own.
 //!
 //! # Placing the pane
 //!
@@ -39,13 +39,10 @@
 //! under it, so a control laid over a handle takes the press rather than the gizmo.
 //! A live drag or keyboard session keeps the pointer wherever it travels.
 
-use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{LazyLock, Mutex, MutexGuard};
 
-use glam::{Quat, Vec2, Vec3};
+use glam::Vec2;
 use serde::{Deserialize, Serialize};
-use viewport_lib_types::camera::Camera;
-use viewport_lib_types::input::ActionFrame;
 
 use viewport_lib_ui_extend::custom::{CustomCtx, CustomInput, CustomWidget};
 use viewport_lib_ui_extend::document::{Style, WidgetId};
@@ -55,6 +52,7 @@ use viewport_lib_ui_extend::input::{Cursor, Input};
 use viewport_lib_ui_extend::layout::TextMeasure;
 use viewport_lib_ui_extend::serde_json;
 
+use super::frame::GizmoFrame;
 use crate::controller::driver::FrameInput;
 use crate::controller::{GizmoDriver, ManipResult, TransformDelta, ValueMode};
 use crate::maths::gizmo::{self, GizmoAxis, GizmoMode, GizmoSpace};
@@ -175,35 +173,6 @@ pub enum ReadoutWhen {
     WhileActive,
 }
 
-/// The camera, selection, and resolved input the host supplies for a frame.
-struct FrameState {
-    /// The camera a pane draws through when it has none of its own.
-    camera: Camera,
-    /// Cameras set for one pane each, by the pane's widget id.
-    view_cameras: HashMap<WidgetId, Camera>,
-    selection_center: Option<Vec3>,
-    space_orientation: Quat,
-    action_frame: ActionFrame,
-}
-
-impl FrameState {
-    fn camera_for(&self, view: WidgetId) -> &Camera {
-        self.view_cameras.get(&view).unwrap_or(&self.camera)
-    }
-}
-
-impl Default for FrameState {
-    fn default() -> Self {
-        Self {
-            camera: Camera::default(),
-            view_cameras: HashMap::new(),
-            selection_center: None,
-            space_orientation: Quat::IDENTITY,
-            action_frame: ActionFrame::default(),
-        }
-    }
-}
-
 /// The driver every pane shares, and which pane drives it.
 struct Session {
     driver: GizmoDriver,
@@ -219,10 +188,8 @@ struct Look {
     readout_when: ReadoutWhen,
 }
 
-/// What the tool holds for all its panes: what the host set this frame, the shared
-/// session, and the look.
+/// What the tool holds for all its panes: the shared session and the look.
 struct Shared {
-    frame: FrameState,
     session: Session,
     look: Look,
 }
@@ -245,8 +212,8 @@ impl Default for PaneState {
 }
 
 /// The gizmo as a viewport-lib-ui custom widget. Construct one, register an `Arc`
-/// of it under [`GIZMO_KIND`], and drive it with [`set_frame`](Self::set_frame)
-/// each frame.
+/// of it under [`GIZMO_KIND`], and give each frame a [`GizmoFrame`] on its host
+/// map.
 ///
 /// One tool serves every gizmo pane on the screen, and on any other screen it is
 /// registered for. The panes share one driver; see the module docs.
@@ -270,7 +237,6 @@ impl GizmoTool {
     pub fn with_style(style: GizmoStyle) -> Self {
         Self {
             shared: Mutex::new(Shared {
-                frame: FrameState::default(),
                 session: Session {
                     driver: GizmoDriver::new(),
                     holder: None,
@@ -336,46 +302,6 @@ impl GizmoTool {
             }
     }
 
-    /// Set this frame's camera, selection pivot, and resolved input. Call once per
-    /// frame before the toolkit's `update`. `camera` is what every pane draws
-    /// through unless it was given its own with
-    /// [`set_view_camera`](Self::set_view_camera). `selection_center` is the
-    /// world-space gizmo centre (`None` hides the gizmo). `action_frame` is the
-    /// host's resolved input for the frame; it carries the keyboard g/r/s,
-    /// confirm/cancel, axis constraints, and numeric entry the controller acts on.
-    /// Pass [`ActionFrame::default`] if the host does not resolve one.
-    pub fn set_frame(
-        &self,
-        camera: Camera,
-        selection_center: Option<Vec3>,
-        action_frame: ActionFrame,
-    ) {
-        self.shared().frame.camera = camera;
-        self.set_selection(selection_center, action_frame);
-    }
-
-    /// Set this frame's selection pivot and resolved input, keeping the cameras: what
-    /// [`set_frame`](Self::set_frame) sets besides the camera, for a host that gives
-    /// every pane its own with [`set_view_camera`](Self::set_view_camera).
-    pub fn set_selection(&self, selection_center: Option<Vec3>, action_frame: ActionFrame) {
-        let mut shared = self.shared();
-        shared.frame.selection_center = selection_center;
-        shared.frame.action_frame = action_frame;
-    }
-
-    /// Set the camera the pane with widget id `view` draws and picks through, for
-    /// a layout whose views each have their own camera. Call it each frame the
-    /// view's camera moves, before the toolkit's `update`.
-    pub fn set_view_camera(&self, view: WidgetId, camera: Camera) {
-        self.shared().frame.view_cameras.insert(view, camera);
-    }
-
-    /// Set the orientation the handles are drawn and picked in: identity for world
-    /// space, the object orientation for local space.
-    pub fn set_space_orientation(&self, orientation: Quat) {
-        self.shared().frame.space_orientation = orientation;
-    }
-
     /// Replace the style the handles are drawn in.
     pub fn set_style(&self, style: GizmoStyle) {
         self.shared().look.style = style;
@@ -428,16 +354,17 @@ impl CustomWidget for GizmoTool {
     }
 
     fn paint(&self, ctx: &CustomCtx, _style: &Style, rect: Rect, out: &mut DrawList) {
-        let shared = self.shared();
-        let Some(centre) = shared.frame.selection_center else {
+        let frame = frame(ctx);
+        let Some(centre) = frame.selection_centre else {
             return;
         };
+        let shared = self.shared();
         let viewport = [rect.width(), rect.height()];
         if viewport[0] <= 0.0 || viewport[1] <= 0.0 {
             return;
         }
 
-        let camera = shared.frame.camera_for(ctx.id());
+        let camera = &frame.camera;
         let view_proj = camera.proj_matrix() * camera.view_matrix();
         let forward = (camera.center - camera.eye_position()).normalize_or_zero();
         let scale =
@@ -466,7 +393,7 @@ impl CustomWidget for GizmoTool {
             centre,
             scale,
             highlight,
-            shared.frame.space_orientation,
+            frame.space_orientation,
             &mut shapes,
             &mut polylines,
         );
@@ -478,9 +405,10 @@ impl CustomWidget for GizmoTool {
     }
 
     fn input(&self, ctx: &CustomCtx, rect: Rect, input: &Input) -> CustomInput {
+        let frame = frame(ctx);
         let mut pane = ctx.state::<PaneState>();
         let mut guard = self.shared();
-        let Shared { frame, session, .. } = &mut *guard;
+        let session = &mut guard.session;
         let view = ctx.id();
 
         // The hovered pane takes over the driver while no session runs, and only the
@@ -519,11 +447,11 @@ impl CustomWidget for GizmoTool {
         // its own source, so they compose.
         let result = session.driver.update(FrameInput {
             action_frame: &frame.action_frame,
-            camera: frame.camera_for(view),
+            camera: &frame.camera,
             viewport_size: viewport,
             cursor_viewport,
             pointer_delta,
-            selection_center: frame.selection_center,
+            selection_center: frame.selection_centre,
             drag_started: ours && input.primary_pressed,
             dragging: ours && input.primary_down,
             clicked: ours && input.primary_released,
@@ -547,6 +475,12 @@ impl CustomWidget for GizmoTool {
         }
         out
     }
+}
+
+/// The frame `ctx` is in, or an empty one (no selection) when the host set none.
+fn frame<'a>(ctx: &CustomCtx<'a>) -> &'a GizmoFrame {
+    static NONE: LazyLock<GizmoFrame> = LazyLock::new(GizmoFrame::default);
+    ctx.context::<GizmoFrame>().unwrap_or(&NONE)
 }
 
 /// The JSON schema of the tool's output, for `CustomParamSchemas::register_output`.
@@ -603,6 +537,9 @@ fn gizmo_result(result: ManipResult) -> Option<GizmoResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::Vec3;
+    use viewport_lib_types::camera::Camera;
+    use viewport_lib_ui_extend::sources::HostMap;
 
     const VP: [f32; 2] = [1280.0, 720.0];
 
@@ -614,11 +551,16 @@ mod tests {
         }
     }
 
-    fn paint(tool: &GizmoTool) -> DrawList {
+    /// A frame through `camera` with the gizmo at the origin.
+    fn selected(camera: Camera) -> HostMap<'static> {
+        HostMap::new().with_context(GizmoFrame::new(camera).with_selection_centre(Some(Vec3::ZERO)))
+    }
+
+    fn paint(tool: &GizmoTool, map: &HostMap) -> DrawList {
         let params = serde_json::Value::Null;
         let mut list = DrawList::new();
         tool.paint(
-            &CustomCtx::new(1, GIZMO_KIND, &params),
+            &CustomCtx::new(1, GIZMO_KIND, &params).with_map(map),
             &Style::default(),
             Rect::new([0.0, 0.0], VP),
             &mut list,
@@ -647,9 +589,8 @@ mod tests {
     #[test]
     fn painting_with_a_selection_emits_draw_commands() {
         let tool = GizmoTool::new();
-        tool.set_frame(camera(), Some(Vec3::ZERO), ActionFrame::default());
         assert!(
-            !paint(&tool).is_empty(),
+            !paint(&tool, &selected(camera())).is_empty(),
             "a selected gizmo paints its handles"
         );
     }
@@ -657,21 +598,33 @@ mod tests {
     #[test]
     fn painting_without_a_selection_emits_nothing() {
         let tool = GizmoTool::new();
-        assert!(paint(&tool).is_empty(), "no selection draws nothing");
+        let unselected = HostMap::new().with_context(GizmoFrame::new(camera()));
+        assert!(
+            paint(&tool, &unselected).is_empty(),
+            "no selection draws nothing"
+        );
+        assert!(
+            paint(&tool, &HostMap::new()).is_empty(),
+            "a frame with no gizmo context draws nothing"
+        );
     }
 
     #[test]
-    fn a_pane_with_its_own_camera_draws_through_it() {
+    fn each_frame_draws_through_its_own_camera() {
         let tool = GizmoTool::new();
-        tool.set_frame(camera(), Some(Vec3::ZERO), ActionFrame::default());
-        let shared = paint(&tool);
+        let near = paint(&tool, &selected(camera()));
         let mut far = camera();
         far.distance = 40.0;
-        tool.set_view_camera(1, far);
+        far.orientation = glam::Quat::from_rotation_y(0.8);
         assert_ne!(
-            paint(&tool),
-            shared,
-            "the pane's own camera moves its handles"
+            paint(&tool, &selected(far)),
+            near,
+            "another frame's camera moves the handles"
+        );
+        assert_eq!(
+            paint(&tool, &selected(camera())),
+            near,
+            "the tool keeps no camera of its own between frames"
         );
     }
 

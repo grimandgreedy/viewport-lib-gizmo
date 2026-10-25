@@ -8,16 +8,17 @@ use std::sync::Arc;
 use glam::{Vec2, Vec3};
 use viewport_lib_gizmo::GizmoMode;
 use viewport_lib_gizmo::compute_gizmo_scale;
-use viewport_lib_gizmo::ui::{GIZMO_KIND, GizmoResult, GizmoTool};
+use viewport_lib_gizmo::ui::{GIZMO_KIND, GizmoFrame, GizmoResult, GizmoTool};
 use viewport_lib_types::camera::Camera;
 use viewport_lib_types::input::{Action, ActionFrame, ResolvedActionState};
-use viewport_lib_ui::{ApproxMeasure, Frame};
+use viewport_lib_ui::{ApproxMeasure, Frame, HostSources};
 use viewport_lib_ui_document::{Alignment, Layout, Screen, Widget, WidgetKind};
 use viewport_lib_ui_extend::custom::WidgetRegistry;
 use viewport_lib_ui_extend::draw::DrawCommand;
 use viewport_lib_ui_extend::events::UiEvent;
 use viewport_lib_ui_extend::input::{Cursor, Input};
 use viewport_lib_ui_extend::serde_json;
+use viewport_lib_ui_extend::sources::HostMap;
 use viewport_lib_ui_test::Harness;
 
 const VP: [f32; 2] = [1280.0, 720.0];
@@ -51,11 +52,21 @@ fn x_handle() -> [f32; 2] {
     to_px(&camera, Vec3::X * (scale * 0.5)).to_array()
 }
 
-/// A tool framed on a selection at the origin.
 fn tool() -> Arc<GizmoTool> {
-    let tool = Arc::new(GizmoTool::new());
-    tool.set_frame(camera(), Some(Vec3::ZERO), ActionFrame::default());
-    tool
+    Arc::new(GizmoTool::new())
+}
+
+/// A frame through `camera` on a selection at the origin, with `action` as the
+/// host's resolved input.
+fn framed(camera: Camera, action: ActionFrame) -> GizmoFrame {
+    GizmoFrame::new(camera)
+        .with_selection_centre(Some(Vec3::ZERO))
+        .with_action_frame(action)
+}
+
+/// The map a host hands a frame through `camera` on a selection at the origin.
+fn view(camera: Camera) -> HostMap<'static> {
+    HostMap::new().with_context(framed(camera, ActionFrame::default()))
 }
 
 fn pane(id: u32) -> Widget {
@@ -83,17 +94,22 @@ fn harness(tool: &Arc<GizmoTool>, children: impl IntoIterator<Item = Widget>) ->
     Harness::new(Screen::new(root))
         .viewport(VP)
         .with_registry(registry(tool))
+        .with_map(view(camera()))
 }
 
-/// What the harness's screen draws through its UI state, the way a host renders a
-/// frame: with the hover and each node's state behind it, which the harness's own
-/// draw list is built without.
-fn rendered(h: &Harness, tool: &Arc<GizmoTool>) -> Vec<DrawCommand> {
+/// What the harness's screen draws through its UI state in a frame whose map is
+/// `map`, the way a host renders a frame: with the hover and each node's state
+/// behind it, which the harness's own draw list is built without.
+fn rendered_in(h: &Harness, tool: &Arc<GizmoTool>, map: &HostMap) -> Vec<DrawCommand> {
     let registry = registry(tool);
     let measure = ApproxMeasure::default();
-    h.ui()
-        .render(h.screen(), &Frame::new(VP, &measure, &registry))
-        .commands
+    let frame = Frame::new(VP, &measure, &registry).with_host(HostSources::default().with_map(map));
+    h.ui().render(h.screen(), &frame).commands
+}
+
+/// What the harness's screen draws through the default camera.
+fn rendered(h: &Harness, tool: &Arc<GizmoTool>) -> Vec<DrawCommand> {
+    rendered_in(h, tool, &view(camera()))
 }
 
 /// The pane `id` alone, covering the viewport.
@@ -252,7 +268,7 @@ fn a_typed_number_reaches_the_host_through_the_delta() {
     begin
         .actions
         .insert(Action::BeginMove, ResolvedActionState::Pressed);
-    tool.set_frame(camera(), Some(Vec3::ZERO), begin);
+    h.set_context(framed(camera(), begin));
     h.feed(Input::at(centre));
     assert!(tool.is_active(), "G starts a session");
 
@@ -260,7 +276,7 @@ fn a_typed_number_reaches_the_host_through_the_delta() {
     // readout: a number typed into a session is how the value is set at all.
     let mut typed = ActionFrame::default();
     typed.typed_chars = vec!['5'];
-    tool.set_frame(camera(), Some(Vec3::ZERO), typed);
+    h.set_context(framed(camera(), typed));
     let events = h.feed(Input::at(centre));
     match result_of(&events, PANE).expect("the typed frame reports a result") {
         GizmoResult::Update(delta) => {
@@ -350,6 +366,54 @@ fn every_pane_of_one_tool_draws_its_gizmo() {
             "each pane paints the handles"
         );
     }
+}
+
+#[test]
+fn two_views_with_two_cameras_draw_differently_from_one_tool() {
+    let tool = tool();
+    let mut side = camera();
+    side.orientation = glam::Quat::from_rotation_y(0.9);
+    let (mut a, mut b) = (one_pane(&tool, 1), one_pane(&tool, 2));
+    b.set_context(framed(side.clone(), ActionFrame::default()));
+    a.feed(Input::at([0.0, 0.0]).without_pointer());
+    b.feed(Input::at([0.0, 0.0]).without_pointer());
+    assert_ne!(
+        a.draw().commands,
+        b.draw().commands,
+        "each view draws through its own camera"
+    );
+    assert_eq!(
+        rendered_in(&a, &tool, &view(side.clone())),
+        rendered_in(&b, &tool, &view(side)),
+        "a pane's drawing follows the frame's camera, not the pane"
+    );
+}
+
+#[test]
+fn a_view_picks_through_its_own_camera() {
+    // A view looking past the selection shows the gizmo off to one side, so the
+    // point over the X arm from the default camera is empty space there.
+    let tool = tool();
+    let mut side = camera();
+    side.center = Vec3::new(3.0, 0.0, 0.0);
+    let mut h = one_pane(&tool, PANE);
+    h.set_context(framed(side, ActionFrame::default()));
+    h.feed(Input::at(x_handle()));
+    assert!(!h.capture().pointer, "the other view has no handle there");
+
+    h.set_context(framed(camera(), ActionFrame::default()));
+    h.feed(Input::at(x_handle()));
+    assert!(h.capture().pointer, "the default view does");
+}
+
+#[test]
+fn a_frame_with_no_gizmo_context_shows_and_takes_nothing() {
+    let tool = tool();
+    let mut h = one_pane(&tool, PANE);
+    h.set_map(HostMap::new());
+    h.feed(Input::at(x_handle()));
+    assert!(!h.capture().pointer);
+    assert!(rendered_in(&h, &tool, &HostMap::new()).is_empty());
 }
 
 #[test]

@@ -156,9 +156,22 @@ also has a readout panel: an x / y / z vector field with a relative / objective
 toggle and a badge for the current mode.
 
 Register one `GizmoTool` under `GIZMO_KIND` (`"vpl.gizmo"`) and it serves
-every gizmo node on the screen. For several views of one selection, put a pane of
-that kind in each view, give each its own widget id, and set each view's camera
-with `set_view_camera(id, camera)`. The panes share one driver: the pane the
+every gizmo node on the screen. Each frame, put a `GizmoFrame` (the camera, the
+selection centre and the resolved input) on the frame's host map:
+
+```rust,ignore
+let map = HostMap::new().with_context(
+    GizmoFrame::new(camera)
+        .with_selection_centre(Some(centre))
+        .with_action_frame(action),
+);
+let frame = Frame::new(size, &measure, &registry).with_host(HostSources::default().with_map(&map));
+let result = ui.update_frame(&mut screen, &input, &frame);
+```
+
+For several views of one selection, put a pane of that kind in each view, give
+each its own widget id, and build each view's frames with that view's camera in
+its `GizmoFrame`. The panes share one driver: the pane the
 pointer is on drives it, a drag or a G / R / S session stays with the pane it
 started in, and the others paint the gizmo for their own camera. What a pane
 keeps between frames lives in the toolkit's per-node state, so the tool holds

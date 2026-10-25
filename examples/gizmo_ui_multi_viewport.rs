@@ -5,8 +5,9 @@
 //! API into its own offscreen target and blitted into a quarter of the window.
 //!
 //! One `GizmoTool` is registered once, and each view has its own toolkit screen
-//! holding one pane of it, with an id of its own. The panes share the tool's one
-//! driver. The toolkit works out which pane the pointer is on, and that pane
+//! holding one pane of it, with an id of its own. Each view's frames carry that
+//! view's camera in a `GizmoFrame` on their host map. The panes share the tool's
+//! one driver. The toolkit works out which pane the pointer is on, and that pane
 //! drives; a drag or a G / R / S session stays with the pane it started in. The
 //! others paint the gizmo through their own view's camera, and show the axis being
 //! changed while a session runs. A transform therefore moves the cube once,
@@ -33,18 +34,19 @@ use vpl::{
 };
 
 use viewport_lib_ui::{
-    Alignment, Frame, InputTranslator, Layout, Screen, ShapedTextMeasurer, UiState, Widget,
-    WidgetKind, WidgetRegistry, custom_output, extend_frame, map_cursor, serde_json,
+    Alignment, Frame, HostMap, HostSources, InputTranslator, Layout, Screen, ShapedTextMeasurer,
+    UiState, Widget, WidgetKind, WidgetRegistry, custom_output, extend_frame, map_cursor,
+    serde_json,
 };
 
 use viewport_lib_gizmo::ActiveView;
-use viewport_lib_gizmo::ui::{GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool};
+use viewport_lib_gizmo::ui::{GIZMO_KIND, GizmoDelta, GizmoFrame, GizmoResult, GizmoTool};
 use viewport_lib_gizmo::{GizmoMode, ValueMode};
 
 const LABELS: [&str; 4] = ["Perspective", "Top", "Front", "Right"];
 const ROOT: u32 = 0;
-/// Each view's gizmo pane. The tool keys a pane's camera by its id, so the four
-/// differ even though each sits on a screen of its own.
+/// Each view's gizmo pane. The tool tells the pane that drives its shared driver
+/// by its id, so the four differ even though each sits on a screen of its own.
 const PANES: [u32; 4] = [1, 2, 3, 4];
 
 fn no_textures(_key: &str) -> Option<vpl::OverlayTextureId> {
@@ -370,23 +372,29 @@ fn main() {
                     .collect();
                 let input = s.translator.frame(&ui_events);
                 let centre = s.current.col(3).truncate();
-                // The window's unfiltered input, which carries the G / R / S keys even
-                // while the camera has given up the pointer. Each pane's camera is set
-                // below.
-                tool.set_selection(Some(centre), action.clone());
+                // The sources every view reads. This example has none, so each view's
+                // map holds only its own frame: its camera, the selection, and the
+                // window's unfiltered input, which carries the G / R / S keys even
+                // while the camera has given up the pointer.
+                let shared = HostMap::new();
                 let mut ui_cursor = None;
                 {
                     let measure = ShapedTextMeasurer::new(ctx.resources(), no_fonts);
                     for (i, view) in s.views.iter_mut().enumerate() {
                         let (origin, size) = logical[i];
-                        tool.set_view_camera(view.pane, view.camera.clone());
+                        let map = HostMap::over(&shared).with_context(
+                            GizmoFrame::new(view.camera.clone())
+                                .with_selection_centre(Some(centre))
+                                .with_action_frame(action.clone()),
+                        );
                         if let Some(w) = view.screen.root.find_mut(view.pane) {
                             w.size = size.into();
                         }
                         let mut local = input.clone();
                         local.cursor[0] -= origin.x;
                         local.cursor[1] -= origin.y;
-                        let frame = Frame::new(size.into(), &measure, &s.registry);
+                        let frame = Frame::new(size.into(), &measure, &s.registry)
+                            .with_host(HostSources::default().with_map(&map));
                         let result = view.ui.update_frame(&mut view.screen, &local, &frame);
                         view.grabbing = result.capture.pointer;
                         if active == Some(i) {
@@ -441,7 +449,14 @@ fn main() {
                             fd.interaction.outline_selected = true;
                             fd.viewport.show_grid = true;
                             fd.viewport.show_axes_indicator = true;
-                            let frame = Frame::new(size.into(), &measure, &s.registry);
+                            // The gizmo draws where the cube is now, through the view's
+                            // own camera.
+                            let map = HostMap::over(&shared).with_context(
+                                GizmoFrame::new(view.camera.clone())
+                                    .with_selection_centre(Some(s.current.col(3).truncate())),
+                            );
+                            let frame = Frame::new(size.into(), &measure, &s.registry)
+                                .with_host(HostSources::default().with_map(&map));
                             let list = view.ui.render(&view.screen, &frame);
                             extend_frame(&list, &mut fd.overlays, &no_textures, &no_fonts);
                             fd.overlays.labels.push(

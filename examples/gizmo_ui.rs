@@ -35,16 +35,15 @@ use vpl::{
 };
 
 use viewport_lib_ui::{
-    Anchor, Colour, Cursor, InputTranslator, Layout, NoData, NoSource, Screen, Scroll,
+    Anchor, Colour, Cursor, Frame, HostMap, HostSources, InputTranslator, Layout, Screen,
     ShapedTextMeasurer, Theme, ThemeMode, UiEvent, UiState, Value, Visibility, Widget, WidgetKind,
-    WidgetRegistry, custom_output, expand_customs, extend_frame, map_cursor, render_customs, roles,
-    serde_json, theme_resolve,
+    WidgetRegistry, custom_output, extend_frame, map_cursor, roles, serde_json,
 };
 
 use viewport_lib_gizmo::ui::{
-    GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool, ObjectPose, ReadoutIds, ReadoutWhen,
-    readout_panel, readout_values_in, set_mode_badge, set_readout, value_mode_from_index,
-    value_mode_index,
+    GIZMO_KIND, GizmoDelta, GizmoFrame, GizmoResult, GizmoTool, ObjectPose, ReadoutIds,
+    ReadoutWhen, readout_panel, readout_values_in, set_mode_badge, set_readout,
+    value_mode_from_index, value_mode_index,
 };
 use viewport_lib_gizmo::{GizmoMode, ValueMode};
 
@@ -310,6 +309,7 @@ fn main() {
                         ui,
                         tool,
                         registry,
+                        theme,
                         node,
                         base,
                         current,
@@ -320,15 +320,20 @@ fn main() {
                     } = &mut *a;
 
                     let centre = current.col(3).truncate();
-                    tool.set_frame(camera, Some(centre), action);
+                    let map = HostMap::new().with_context(
+                        GizmoFrame::new(camera)
+                            .with_selection_centre(Some(centre))
+                            .with_action_frame(action),
+                    );
                     // Keep the pane covering the viewport as the window resizes.
                     if let Some(w) = screen.root.find_mut(GIZMO_PANE) {
                         w.size = vp_px;
                     }
 
-                    let result = ui.update_customs(
-                        screen, &input, vp_px, &measure, registry, &NoSource, &NoData,
-                    );
+                    let frame = Frame::new(vp_px, &measure, registry)
+                        .with_theme(theme)
+                        .with_host(HostSources::default().with_map(&map));
+                    let result = ui.update_frame(screen, &input, &frame);
 
                     if node.is_some() {
                         match custom_output::<GizmoResult>(&result.events, GIZMO_PANE) {
@@ -417,18 +422,16 @@ fn main() {
                     if let Some(shape) = map_cursor(&a.cursor) {
                         ctx.set_cursor(shape);
                     }
-                    let composed =
-                        expand_customs(&a.screen, &a.registry, &NoSource, &NoData, &measure);
-                    let themed = theme_resolve(&composed, &a.theme);
-                    let list = render_customs(
-                        &themed,
-                        vp_px,
-                        &measure,
-                        &Scroll::default(),
-                        &a.registry,
-                        &NoSource,
-                        &NoData,
+                    // The gizmo draws where the cube is now, through the camera this frame
+                    // renders with.
+                    let map = HostMap::new().with_context(
+                        GizmoFrame::new(ctx.camera().clone())
+                            .with_selection_centre(Some(a.current.col(3).truncate())),
                     );
+                    let frame = Frame::new(vp_px, &measure, &a.registry)
+                        .with_theme(&a.theme)
+                        .with_host(HostSources::default().with_map(&map));
+                    let list = a.ui.render(&a.screen, &frame);
                     extend_frame(&list, ctx.overlays_mut(), &no_textures, &no_fonts);
                 }
             },
