@@ -168,12 +168,12 @@ struct App {
 }
 
 fn main() {
-    // The registry holds every handler as `Arc<dyn CustomWidget>`, so the tool must be
-    // an `Arc` even though it is single-threaded (its state is behind `RefCell`/`Cell`).
-    #[allow(clippy::arc_with_non_send_sync)]
+    // The registry holds the handler shared; keep a clone to set its frame and read it.
     let tool = Arc::new(GizmoTool::new());
     let mut registry = WidgetRegistry::new();
-    registry.register(GIZMO_KIND, tool.clone());
+    registry
+        .register(GIZMO_KIND, tool.clone())
+        .expect("the registry is empty");
 
     let app = Rc::new(RefCell::new(App {
         screen: build_screen(),

@@ -8,9 +8,23 @@
 //! live, and reports the transform as a typed [`GizmoResult`] the host reads back.
 //!
 //! The 3D maths, the camera, and the controller stay in the gizmo core; this type
-//! only bridges them to the toolkit. It holds its state behind interior
-//! mutability, since the registry holds the handler shared. Register one `Arc`,
-//! keep a clone, and call [`set_frame`](GizmoTool::set_frame) on it each frame.
+//! only bridges them to the toolkit.
+//!
+//! # One tool, any number of panes
+//!
+//! Register one tool under [`GIZMO_KIND`] and keep an `Arc` of it to set its frame
+//! and read it back. Every `Custom` node of that kind is a pane of the same tool:
+//! the panes show one selection and share one driver, so a drag or a G / R / S
+//! session moves the selection once however many views show it. The pane the
+//! pointer is on drives the driver, a session stays with the pane it started in
+//! until it ends, and the other panes paint the gizmo sized for their own camera
+//! and show the axis being changed. What a pane keeps between frames (the last
+//! cursor, the handle it has hovered) lives in the toolkit's per-node state.
+//!
+//! Each pane draws through the camera set for its widget id with
+//! [`set_view_camera`](GizmoTool::set_view_camera), and through the one given to
+//! [`set_frame`](GizmoTool::set_frame) when it has none. So panes on separate
+//! screens still need ids of their own.
 //!
 //! # Placing the pane
 //!
@@ -25,18 +39,21 @@
 //! under it, so a control laid over a handle takes the press rather than the gizmo.
 //! A live drag or keyboard session keeps the pointer wherever it travels.
 
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard};
 
 use glam::{Quat, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 use viewport_lib_types::camera::Camera;
 use viewport_lib_types::input::ActionFrame;
 
-use viewport_lib_ui_core::serde_json;
-use viewport_lib_ui_core::{
-    Cursor, CustomCtx, CustomInput, CustomWidget, DrawList, Input, Rect, Style, TextMeasure,
-};
+use viewport_lib_ui_extend::custom::{CustomCtx, CustomInput, CustomWidget};
+use viewport_lib_ui_extend::document::{Style, WidgetId};
+use viewport_lib_ui_extend::draw::DrawList;
+use viewport_lib_ui_extend::geometry::Rect;
+use viewport_lib_ui_extend::input::{Cursor, Input};
+use viewport_lib_ui_extend::layout::TextMeasure;
+use viewport_lib_ui_extend::serde_json;
 
 use crate::controller::driver::FrameInput;
 use crate::controller::{GizmoDriver, ManipResult, TransformDelta, ValueMode};
@@ -44,8 +61,10 @@ use crate::maths::gizmo::{self, GizmoAxis, GizmoMode, GizmoSpace};
 use crate::overlay::builder::build_gizmo_overlays;
 use crate::overlay::style::GizmoStyle;
 
-/// The default `kind` string to register [`GizmoTool`] under.
-pub const GIZMO_KIND: &str = "gizmo";
+/// The `kind` string to register [`GizmoTool`] under. It carries the `vpl.` prefix
+/// because the gizmo is part of the viewport-lib family, the same namespace the
+/// toolkit's own kinds use.
+pub const GIZMO_KIND: &str = "vpl.gizmo";
 
 /// A transform delta as plain arrays, so it serialises without a glam serde
 /// dependency. `rotation` is a quaternion in `[x, y, z, w]` order.
@@ -158,16 +177,26 @@ pub enum ReadoutWhen {
 
 /// The camera, selection, and resolved input the host supplies for a frame.
 struct FrameState {
+    /// The camera a pane draws through when it has none of its own.
     camera: Camera,
+    /// Cameras set for one pane each, by the pane's widget id.
+    view_cameras: HashMap<WidgetId, Camera>,
     selection_center: Option<Vec3>,
     space_orientation: Quat,
     action_frame: ActionFrame,
+}
+
+impl FrameState {
+    fn camera_for(&self, view: WidgetId) -> &Camera {
+        self.view_cameras.get(&view).unwrap_or(&self.camera)
+    }
 }
 
 impl Default for FrameState {
     fn default() -> Self {
         Self {
             camera: Camera::default(),
+            view_cameras: HashMap::new(),
             selection_center: None,
             space_orientation: Quat::IDENTITY,
             action_frame: ActionFrame::default(),
@@ -175,29 +204,54 @@ impl Default for FrameState {
     }
 }
 
-/// The driver behind one or more tools, and which of them drives it.
+/// The driver every pane shares, and which pane drives it.
+struct Session {
+    driver: GizmoDriver,
+    /// The pane that drives the driver: the one last hovered while no session ran.
+    /// A session stays with the pane it started in. `None` until a pane has taken it.
+    holder: Option<WidgetId>,
+}
+
+/// How the tool looks and when its readout shows.
+struct Look {
+    style: GizmoStyle,
+    show_readout: bool,
+    readout_when: ReadoutWhen,
+}
+
+/// What the tool holds for all its panes: what the host set this frame, the shared
+/// session, and the look.
 struct Shared {
-    driver: RefCell<GizmoDriver>,
-    /// The tool that drives the driver: the one last hovered while no session
-    /// ran. A session stays with the tool it started in.
-    holder: Cell<usize>,
-    next_id: Cell<usize>,
+    frame: FrameState,
+    session: Session,
+    look: Look,
+}
+
+/// What one pane keeps between frames, in the toolkit's state for its node.
+struct PaneState {
+    /// Where the pointer was on the pane's last driving frame, for the pointer delta.
+    last_cursor: Option<Vec2>,
+    /// The handle under the pointer as of the pane's last driving frame.
+    hovered: GizmoAxis,
+}
+
+impl Default for PaneState {
+    fn default() -> Self {
+        Self {
+            last_cursor: None,
+            hovered: GizmoAxis::None,
+        }
+    }
 }
 
 /// The gizmo as a viewport-lib-ui custom widget. Construct one, register an `Arc`
-/// of it, and drive it with [`set_frame`](Self::set_frame) each frame.
+/// of it under [`GIZMO_KIND`], and drive it with [`set_frame`](Self::set_frame)
+/// each frame.
 ///
-/// For a split layout that shows one selection in several views, give each view
-/// its own tool built with [`sharing`](Self::sharing). The tools share one
-/// driver, so a drag or a G / R / S session moves the selection once.
+/// One tool serves every gizmo pane on the screen, and on any other screen it is
+/// registered for. The panes share one driver; see the module docs.
 pub struct GizmoTool {
-    shared: Rc<Shared>,
-    id: usize,
-    frame: RefCell<FrameState>,
-    style: RefCell<GizmoStyle>,
-    last_cursor: Cell<Option<Vec2>>,
-    show_readout: Cell<bool>,
-    readout_when: Cell<ReadoutWhen>,
+    shared: Mutex<Shared>,
 }
 
 impl Default for GizmoTool {
@@ -215,68 +269,57 @@ impl GizmoTool {
     /// A tool with a chosen style.
     pub fn with_style(style: GizmoStyle) -> Self {
         Self {
-            shared: Rc::new(Shared {
-                driver: RefCell::new(GizmoDriver::new()),
-                holder: Cell::new(0),
-                next_id: Cell::new(1),
+            shared: Mutex::new(Shared {
+                frame: FrameState::default(),
+                session: Session {
+                    driver: GizmoDriver::new(),
+                    holder: None,
+                },
+                look: Look {
+                    style,
+                    show_readout: true,
+                    readout_when: ReadoutWhen::Always,
+                },
             }),
-            id: 0,
-            frame: RefCell::new(FrameState::default()),
-            style: RefCell::new(style),
-            last_cursor: Cell::new(None),
-            show_readout: Cell::new(true),
-            readout_when: Cell::new(ReadoutWhen::Always),
         }
     }
 
-    /// A tool for another view of the same selection, sharing `other`'s driver
-    /// and starting with its style.
-    ///
-    /// The tool under the pointer drives the shared driver; the others only
-    /// paint, each sized for its own camera. A drag or a G / R / S session stays
-    /// with the tool it started in until it ends, and while it runs every tool
-    /// shows the axis being changed. Mode, space and value mode are shared.
-    pub fn sharing(other: &GizmoTool) -> Self {
-        let id = other.shared.next_id.get();
-        other.shared.next_id.set(id + 1);
-        Self {
-            shared: other.shared.clone(),
-            id,
-            frame: RefCell::new(FrameState::default()),
-            style: RefCell::new(other.style.borrow().clone()),
-            last_cursor: Cell::new(None),
-            show_readout: Cell::new(other.show_readout.get()),
-            readout_when: Cell::new(other.readout_when.get()),
-        }
+    fn shared(&self) -> MutexGuard<'_, Shared> {
+        // Nothing here is left half-written by a panic, so a poisoned lock is still
+        // a usable one.
+        self.shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Whether this tool drives the shared driver this frame. Always true for a
-    /// tool that shares with no other.
-    pub fn is_driving(&self) -> bool {
-        self.shared.holder.get() == self.id
+    /// The pane driving the shared driver, by widget id: the one last hovered
+    /// while no session ran, or the one the running session started in. `None`
+    /// before any pane has had the pointer.
+    pub fn driving_view(&self) -> Option<WidgetId> {
+        self.shared().session.holder
     }
 
     /// Whether the numeric readout panel should be shown. Defaults to `true`. The
     /// host reads this to toggle the visibility of the panel built by
     /// [`readout_panel`](super::readout::readout_panel).
     pub fn show_readout(&self) -> bool {
-        self.show_readout.get()
+        self.shared().look.show_readout
     }
 
     /// Set whether the readout panel is shown.
     pub fn set_show_readout(&self, show: bool) {
-        self.show_readout.set(show);
+        self.shared().look.show_readout = show;
     }
 
     /// When the readout panel is worth showing. Defaults to
     /// [`Always`](ReadoutWhen::Always).
     pub fn readout_when(&self) -> ReadoutWhen {
-        self.readout_when.get()
+        self.shared().look.readout_when
     }
 
     /// Set when the readout panel is worth showing.
     pub fn set_readout_when(&self, when: ReadoutWhen) {
-        self.readout_when.set(when);
+        self.shared().look.readout_when = when;
     }
 
     /// Whether the readout panel should be visible right now: the two settings above
@@ -285,78 +328,95 @@ impl GizmoTool {
     /// [`WhileActive`](ReadoutWhen::WhileActive) only while a drag or a keyboard session
     /// is running.
     pub fn readout_visible(&self) -> bool {
-        self.show_readout.get()
-            && match self.readout_when.get() {
-                ReadoutWhen::WhileActive => self.is_active(),
+        let shared = self.shared();
+        shared.look.show_readout
+            && match shared.look.readout_when {
+                ReadoutWhen::WhileActive => shared.session.driver.is_active(),
                 _ => true,
             }
     }
 
     /// Set this frame's camera, selection pivot, and resolved input. Call once per
-    /// frame before the toolkit's `update`. `selection_center` is the world-space
-    /// gizmo centre (`None` hides the gizmo). `action_frame` is the host's resolved
-    /// input for the frame; it carries the keyboard g/r/s, confirm/cancel, axis
-    /// constraints, and numeric entry the controller acts on. Pass
-    /// [`ActionFrame::default`] if the host does not resolve one.
+    /// frame before the toolkit's `update`. `camera` is what every pane draws
+    /// through unless it was given its own with
+    /// [`set_view_camera`](Self::set_view_camera). `selection_center` is the
+    /// world-space gizmo centre (`None` hides the gizmo). `action_frame` is the
+    /// host's resolved input for the frame; it carries the keyboard g/r/s,
+    /// confirm/cancel, axis constraints, and numeric entry the controller acts on.
+    /// Pass [`ActionFrame::default`] if the host does not resolve one.
     pub fn set_frame(
         &self,
         camera: Camera,
         selection_center: Option<Vec3>,
         action_frame: ActionFrame,
     ) {
-        let mut frame = self.frame.borrow_mut();
-        frame.camera = camera;
-        frame.selection_center = selection_center;
-        frame.action_frame = action_frame;
+        self.shared().frame.camera = camera;
+        self.set_selection(selection_center, action_frame);
+    }
+
+    /// Set this frame's selection pivot and resolved input, keeping the cameras: what
+    /// [`set_frame`](Self::set_frame) sets besides the camera, for a host that gives
+    /// every pane its own with [`set_view_camera`](Self::set_view_camera).
+    pub fn set_selection(&self, selection_center: Option<Vec3>, action_frame: ActionFrame) {
+        let mut shared = self.shared();
+        shared.frame.selection_center = selection_center;
+        shared.frame.action_frame = action_frame;
+    }
+
+    /// Set the camera the pane with widget id `view` draws and picks through, for
+    /// a layout whose views each have their own camera. Call it each frame the
+    /// view's camera moves, before the toolkit's `update`.
+    pub fn set_view_camera(&self, view: WidgetId, camera: Camera) {
+        self.shared().frame.view_cameras.insert(view, camera);
     }
 
     /// Set the orientation the handles are drawn and picked in: identity for world
     /// space, the object orientation for local space.
     pub fn set_space_orientation(&self, orientation: Quat) {
-        self.frame.borrow_mut().space_orientation = orientation;
+        self.shared().frame.space_orientation = orientation;
     }
 
     /// Replace the style the handles are drawn in.
     pub fn set_style(&self, style: GizmoStyle) {
-        *self.style.borrow_mut() = style;
+        self.shared().look.style = style;
     }
 
     /// The current gizmo mode (translate / rotate / scale).
     pub fn mode(&self) -> GizmoMode {
-        self.shared.driver.borrow().mode()
+        self.shared().session.driver.mode()
     }
 
     /// Set the gizmo mode. Ignored while a session is active.
     pub fn set_mode(&self, mode: GizmoMode) {
-        self.shared.driver.borrow_mut().set_mode(mode);
+        self.shared().session.driver.set_mode(mode);
     }
 
     /// Set the gizmo space (world / local).
     pub fn set_space(&self, space: GizmoSpace) {
-        self.shared.driver.borrow_mut().set_space(space);
+        self.shared().session.driver.set_space(space);
     }
 
     /// Whether values are read relative to the start pose or as absolute
     /// (objective) world values.
     pub fn value_mode(&self) -> ValueMode {
-        self.shared.driver.borrow().value_mode()
+        self.shared().session.driver.value_mode()
     }
 
     /// Set the value mode. Pair this with the segmented control from
     /// [`value_mode_segmented`](super::readout::value_mode_segmented).
     pub fn set_value_mode(&self, mode: ValueMode) {
-        self.shared.driver.borrow_mut().set_value_mode(mode);
+        self.shared().session.driver.set_value_mode(mode);
     }
 
     /// True while a drag or a keyboard session is in progress.
     pub fn is_active(&self) -> bool {
-        self.shared.driver.borrow().is_active()
+        self.shared().session.driver.is_active()
     }
 
     /// The readout string for the active session, or `None` when idle. Feed it to a
     /// sibling text widget.
     pub fn readout(&self) -> Option<String> {
-        self.shared.driver.borrow().readout()
+        self.shared().session.driver.readout()
     }
 }
 
@@ -367,9 +427,9 @@ impl CustomWidget for GizmoTool {
         [256.0, 256.0]
     }
 
-    fn paint(&self, _ctx: &CustomCtx, _style: &Style, rect: Rect, out: &mut DrawList) {
-        let frame = self.frame.borrow();
-        let Some(centre) = frame.selection_center else {
+    fn paint(&self, ctx: &CustomCtx, _style: &Style, rect: Rect, out: &mut DrawList) {
+        let shared = self.shared();
+        let Some(centre) = shared.frame.selection_center else {
             return;
         };
         let viewport = [rect.width(), rect.height()];
@@ -377,25 +437,36 @@ impl CustomWidget for GizmoTool {
             return;
         }
 
-        let camera = &frame.camera;
+        let camera = shared.frame.camera_for(ctx.id());
         let view_proj = camera.proj_matrix() * camera.view_matrix();
         let forward = (camera.center - camera.eye_position()).normalize_or_zero();
         let scale =
             gizmo::compute_gizmo_scale(centre, camera.eye_position(), camera.fov_y, viewport[1]);
 
-        let driver = self.shared.driver.borrow();
+        // A running session lights the axis being changed in every pane. Otherwise a
+        // pane lights the handle it last saw hovered, and only while the pointer is
+        // still on it, so a pane the pointer has left does not keep a stale highlight.
+        let driver = &shared.session.driver;
+        let highlight = if driver.is_active() {
+            driver.highlight(false)
+        } else if ctx.state.hovered {
+            ctx.state::<PaneState>().hovered
+        } else {
+            GizmoAxis::None
+        };
+
         let mut shapes = Vec::new();
         let mut polylines = Vec::new();
         build_gizmo_overlays(
-            &self.style.borrow(),
+            &shared.look.style,
             driver.mode(),
             view_proj,
             forward,
             viewport,
             centre,
             scale,
-            driver.highlight(self.is_driving()),
-            frame.space_orientation,
+            highlight,
+            shared.frame.space_orientation,
             &mut shapes,
             &mut polylines,
         );
@@ -407,43 +478,38 @@ impl CustomWidget for GizmoTool {
     }
 
     fn input(&self, ctx: &CustomCtx, rect: Rect, input: &Input) -> CustomInput {
-        // With several tools on one driver, the hovered one takes over while no
-        // session runs, and only the holder drives, so the driver sees each
-        // frame's input once.
-        if !self.shared.driver.borrow().is_active() && ctx.state.hovered {
-            self.shared.holder.set(self.id);
-        }
-        if !self.is_driving() {
-            // Forget the cursor, so the first frame back does not read the whole
-            // way the pointer travelled meanwhile as one move.
-            self.last_cursor.set(None);
-            return CustomInput::default();
-        }
+        let mut pane = ctx.state::<PaneState>();
+        let mut guard = self.shared();
+        let Shared { frame, session, .. } = &mut *guard;
+        let view = ctx.id();
 
-        let (camera, centre, action_frame) = {
-            let frame = self.frame.borrow();
-            (
-                frame.camera.clone(),
-                frame.selection_center,
-                frame.action_frame.clone(),
-            )
-        };
+        // The hovered pane takes over the driver while no session runs, and only the
+        // holder drives, so the driver sees each frame's input once. A pane with no
+        // other to compete with takes it on its first frame.
+        if !session.driver.is_active() && (ctx.state.hovered || session.holder.is_none()) {
+            session.holder = Some(view);
+        }
+        if session.holder != Some(view) {
+            // Forget the cursor, so the first frame back does not read the whole way
+            // the pointer travelled meanwhile as one move.
+            *pane = PaneState::default();
+            return CustomInput::new();
+        }
 
         let viewport = Vec2::new(rect.width(), rect.height());
         let cursor_abs = Vec2::new(input.cursor[0], input.cursor[1]);
-        let pointer_delta = match self.last_cursor.get() {
+        let pointer_delta = match pane.last_cursor {
             Some(previous) => cursor_abs - previous,
             None => Vec2::ZERO,
         };
-        self.last_cursor.set(Some(cursor_abs));
+        pane.last_cursor = Some(cursor_abs);
 
         // Whether the pointer is the gizmo's to act on. The pane covers the whole
         // viewport, so a panel or button drawn over it can sit on top of a handle;
         // the toolkit reports which widget the pointer is really on, and chrome above
         // the pane owns it. A live session keeps the pointer wherever it travels, so a
         // drag or a keyboard move carries on across a panel.
-        let session_live = self.shared.driver.borrow().is_active();
-        let ours = ctx.state.hovered || session_live;
+        let ours = ctx.state.hovered || session.driver.is_active();
         // Withhold the cursor when it is not ours, so the hit-test clears the hovered
         // handle instead of lighting one up under a panel.
         let cursor_viewport = ours.then(|| cursor_abs - Vec2::new(rect.min[0], rect.min[1]));
@@ -451,44 +517,35 @@ impl CustomWidget for GizmoTool {
         // The host's resolved action frame carries keyboard g/r/s and numeric entry;
         // the pointer flags below drive the gizmo drag. The controller reads each from
         // its own source, so they compose.
-        let result = self.shared.driver.borrow_mut().update(FrameInput {
-            action_frame: &action_frame,
-            camera: &camera,
+        let result = session.driver.update(FrameInput {
+            action_frame: &frame.action_frame,
+            camera: frame.camera_for(view),
             viewport_size: viewport,
             cursor_viewport,
             pointer_delta,
-            selection_center: centre,
+            selection_center: frame.selection_center,
             drag_started: ours && input.primary_pressed,
             dragging: ours && input.primary_down,
             clicked: ours && input.primary_released,
         });
 
-        let (active, hovered) = {
-            let driver = self.shared.driver.borrow();
-            (driver.is_active(), driver.hovered_axis())
-        };
+        let active = session.driver.is_active();
+        let hovered = session.driver.hovered_axis();
+        pane.hovered = hovered;
         // Hold the pointer while a handle is hovered or a drag is live, so the camera
         // and panels yield only where the gizmo is actually interactive.
-        let capture_pointer = active || hovered != GizmoAxis::None;
+        let mut out = CustomInput::new().with_pointer_capture(active || hovered != GizmoAxis::None);
         // The shape over a handle: open while it can be taken, closed while it is being
         // dragged. Left alone elsewhere, so empty viewport and chrome keep their own.
-        let cursor = if active {
-            Some(Cursor::Grabbing)
+        if active {
+            out = out.with_cursor(Cursor::Grabbing);
         } else if hovered != GizmoAxis::None {
-            Some(Cursor::Grab)
-        } else {
-            None
-        };
-
-        let output = gizmo_result(result)
-            .map(|result| serde_json::to_value(result).expect("a gizmo result serialises"));
-
-        CustomInput {
-            output,
-            capture_pointer,
-            cursor,
-            ..Default::default()
+            out = out.with_cursor(Cursor::Grab);
         }
+        if let Some(result) = gizmo_result(result) {
+            out = out.with_output(serde_json::to_value(result).expect("a gizmo result serialises"));
+        }
+        out
     }
 }
 
@@ -546,66 +603,33 @@ fn gizmo_result(result: ManipResult) -> Option<GizmoResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use viewport_lib_ui_core::{ApproxMeasure, CustomState, NoData, NoSource};
 
     const VP: [f32; 2] = [1280.0, 720.0];
 
     fn camera() -> Camera {
-        let mut camera = Camera::default();
-        camera.center = Vec3::ZERO;
-        camera.distance = 6.0;
-        camera
-    }
-
-    /// Project a world point to a viewport pixel, matching the overlay builder.
-    fn to_px(camera: &Camera, world: Vec3) -> Vec2 {
-        let clip = (camera.proj_matrix() * camera.view_matrix()) * world.extend(1.0);
-        let ndc = clip.truncate() / clip.w;
-        Vec2::new(
-            (ndc.x * 0.5 + 0.5) * VP[0],
-            (1.0 - (ndc.y * 0.5 + 0.5)) * VP[1],
-        )
-    }
-
-    /// A context with the pointer on the pane, the usual case.
-    fn ctx<'a>(
-        params: &'a serde_json::Value,
-        src: &'a NoSource,
-        data: &'a NoData,
-    ) -> CustomCtx<'a> {
-        ctx_hovered(params, src, data, true)
-    }
-
-    /// A context whose `hovered` says whether the pane is the widget the pointer is
-    /// on, the way the toolkit's interaction walk settles it: false when chrome is
-    /// drawn over the pane at the cursor.
-    fn ctx_hovered<'a>(
-        params: &'a serde_json::Value,
-        src: &'a NoSource,
-        data: &'a NoData,
-        hovered: bool,
-    ) -> CustomCtx<'a> {
-        CustomCtx {
-            params,
-            values: src,
-            data,
-            content: &[],
-            rect: None,
-            state: CustomState {
-                hovered,
-                ..Default::default()
-            },
+        Camera {
+            center: Vec3::ZERO,
+            distance: 6.0,
+            ..Camera::default()
         }
     }
 
-    fn full_rect() -> Rect {
-        Rect::new([0.0, 0.0], VP)
+    fn paint(tool: &GizmoTool) -> DrawList {
+        let params = serde_json::Value::Null;
+        let mut list = DrawList::new();
+        tool.paint(
+            &CustomCtx::new(1, GIZMO_KIND, &params),
+            &Style::default(),
+            Rect::new([0.0, 0.0], VP),
+            &mut list,
+        );
+        list
     }
 
-    fn x_handle_cursor(camera: &Camera) -> Vec2 {
-        let scale =
-            gizmo::compute_gizmo_scale(Vec3::ZERO, camera.eye_position(), camera.fov_y, VP[1]);
-        to_px(camera, Vec3::X * (scale * 0.5))
+    #[test]
+    fn the_tool_can_be_shared_across_threads() {
+        fn send_sync<T: Send + Sync>() {}
+        send_sync::<GizmoTool>();
     }
 
     #[test]
@@ -624,366 +648,31 @@ mod tests {
     fn painting_with_a_selection_emits_draw_commands() {
         let tool = GizmoTool::new();
         tool.set_frame(camera(), Some(Vec3::ZERO), ActionFrame::default());
-        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
-        let mut list = DrawList::new();
-        tool.paint(
-            &ctx(&params, &src, &data),
-            &Style::default(),
-            full_rect(),
-            &mut list,
+        assert!(
+            !paint(&tool).is_empty(),
+            "a selected gizmo paints its handles"
         );
-        assert!(!list.is_empty(), "a selected gizmo paints its handles");
     }
 
     #[test]
     fn painting_without_a_selection_emits_nothing() {
         let tool = GizmoTool::new();
-        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
-        let mut list = DrawList::new();
-        tool.paint(
-            &ctx(&params, &src, &data),
-            &Style::default(),
-            full_rect(),
-            &mut list,
-        );
-        assert!(list.is_empty(), "no selection draws nothing");
+        assert!(paint(&tool).is_empty(), "no selection draws nothing");
     }
 
     #[test]
-    fn hovering_a_handle_captures_the_pointer() {
+    fn a_pane_with_its_own_camera_draws_through_it() {
         let tool = GizmoTool::new();
-        let cam = camera();
-        tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
-        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
-
-        // Cursor over empty space does not capture.
-        let idle = tool.input(
-            &ctx(&params, &src, &data),
-            full_rect(),
-            &Input::at([5.0, 5.0]),
+        tool.set_frame(camera(), Some(Vec3::ZERO), ActionFrame::default());
+        let shared = paint(&tool);
+        let mut far = camera();
+        far.distance = 40.0;
+        tool.set_view_camera(1, far);
+        assert_ne!(
+            paint(&tool),
+            shared,
+            "the pane's own camera moves its handles"
         );
-        assert!(!idle.capture_pointer, "empty space yields to the camera");
-
-        // Cursor over the X arm captures.
-        let cursor = x_handle_cursor(&cam);
-        let over = tool.input(
-            &ctx(&params, &src, &data),
-            full_rect(),
-            &Input::at(cursor.to_array()),
-        );
-        assert!(over.capture_pointer, "hovering a handle holds the pointer");
-    }
-
-    #[test]
-    fn chrome_over_a_handle_takes_the_press_off_the_gizmo() {
-        let tool = GizmoTool::new();
-        let cam = camera();
-        tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
-        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
-        let cursor = x_handle_cursor(&cam);
-
-        // The same point on the X arm, but with a control drawn over the pane there, so
-        // the pane is not the widget the pointer is on.
-        let covered = ctx_hovered(&params, &src, &data, false);
-        let over = tool.input(&covered, full_rect(), &Input::at(cursor.to_array()));
-        assert!(
-            !over.capture_pointer,
-            "the control above the handle owns the pointer"
-        );
-        assert_eq!(over.cursor, None, "and keeps its own shape");
-
-        // The press belongs to that control: it must not begin a gizmo drag.
-        let pressed = tool.input(&covered, full_rect(), &Input::at(cursor.to_array()).press());
-        assert!(!pressed.capture_pointer);
-        assert!(pressed.output.is_none(), "no drag began under the chrome");
-        assert!(!tool.is_active());
-
-        // Uncovered, the same point is the gizmo's again.
-        let over = tool.input(
-            &ctx(&params, &src, &data),
-            full_rect(),
-            &Input::at(cursor.to_array()),
-        );
-        assert!(
-            over.capture_pointer,
-            "the handle is live where nothing covers it"
-        );
-    }
-
-    #[test]
-    fn a_drag_carries_on_across_chrome() {
-        let tool = GizmoTool::new();
-        let cam = camera();
-        tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
-        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
-        let start = x_handle_cursor(&cam);
-
-        // Begin the drag on the bare handle.
-        tool.input(
-            &ctx(&params, &src, &data),
-            full_rect(),
-            &Input::at(start.to_array()).press(),
-        );
-        assert!(tool.is_active());
-
-        // The pointer travels over a panel mid-drag. The session owns it regardless of
-        // what is drawn under the cursor, so the drag still reports its delta.
-        let mut held = Input::at([start.x + 60.0, start.y]);
-        held.primary_down = true;
-        let dragged = tool.input(
-            &ctx_hovered(&params, &src, &data, false),
-            full_rect(),
-            &held,
-        );
-        assert!(dragged.capture_pointer, "a live drag keeps the pointer");
-        assert!(dragged.output.is_some(), "and keeps reporting its delta");
-    }
-
-    #[test]
-    fn the_pointer_reads_as_a_grab_over_a_handle() {
-        let tool = GizmoTool::new();
-        let cam = camera();
-        tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
-        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
-
-        // Empty viewport: the gizmo names no shape, so the host's own stands.
-        let idle = tool.input(
-            &ctx(&params, &src, &data),
-            full_rect(),
-            &Input::at([5.0, 5.0]),
-        );
-        assert_eq!(idle.cursor, None);
-
-        // Over the X arm: open, the handle can be taken.
-        let cursor = x_handle_cursor(&cam);
-        let over = tool.input(
-            &ctx(&params, &src, &data),
-            full_rect(),
-            &Input::at(cursor.to_array()),
-        );
-        assert_eq!(over.cursor, Some(Cursor::Grab));
-
-        // Dragging it: closed.
-        let dragging = tool.input(
-            &ctx(&params, &src, &data),
-            full_rect(),
-            &Input::at(cursor.to_array()).press(),
-        );
-        assert_eq!(dragging.cursor, Some(Cursor::Grabbing));
-    }
-
-    #[test]
-    fn the_toolkit_reports_the_grab_cursor_for_a_hovered_handle() {
-        // The whole chain a host reads: the walk hovers the pane, the handler names the
-        // shape for the handle under the pointer, and `UiState::cursor` reports it. A
-        // host that applies that to its window gets the hand over the handle.
-        use viewport_lib_ui_core::{Cursor, UiState, WidgetRegistry};
-        use viewport_lib_ui_document::{Anchor, Layout, Screen, Widget, WidgetKind};
-
-        let tool = std::sync::Arc::new(GizmoTool::new());
-        let mut registry = WidgetRegistry::new();
-        registry.register(GIZMO_KIND, tool.clone());
-        let mut screen = Screen::new(
-            Widget::new(0, WidgetKind::Panel)
-                .with_layout(Layout::Free)
-                .with_child(
-                    Widget::custom(1, GIZMO_KIND, serde_json::Value::Null).placed(
-                        Anchor::TopLeft,
-                        [0.0, 0.0],
-                        VP,
-                    ),
-                ),
-        );
-
-        let cam = camera();
-        let mut ui = UiState::new();
-        let mut frame = |input: Input| {
-            tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
-            ui.update_customs(
-                &mut screen,
-                &input,
-                VP,
-                &ApproxMeasure::default(),
-                &registry,
-                &NoSource,
-                &NoData,
-            );
-            ui.cursor()
-        };
-
-        let on_handle = x_handle_cursor(&cam);
-        assert_eq!(
-            frame(Input::at(on_handle.to_array())),
-            Cursor::Grab,
-            "an open hand over the handle"
-        );
-        assert_eq!(
-            frame(Input::at(on_handle.to_array()).press()),
-            Cursor::Grabbing,
-            "and a closed one once it is taken"
-        );
-    }
-
-    #[test]
-    fn a_lone_tool_always_drives() {
-        let tool = GizmoTool::new();
-        assert!(tool.is_driving());
-    }
-
-    #[test]
-    fn shared_tools_drive_from_the_hovered_view() {
-        let a = GizmoTool::new();
-        let b = GizmoTool::sharing(&a);
-        let cam = camera();
-        a.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
-        b.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
-        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
-        let on_handle = Input::at(x_handle_cursor(&cam).to_array());
-
-        // The pointer is over B's pane: A yields, B takes the handle.
-        let from_a = a.input(
-            &ctx_hovered(&params, &src, &data, false),
-            full_rect(),
-            &on_handle,
-        );
-        let from_b = b.input(&ctx(&params, &src, &data), full_rect(), &on_handle);
-        assert!(b.is_driving() && !a.is_driving());
-        assert!(!from_a.capture_pointer && from_a.output.is_none());
-        assert!(from_b.capture_pointer, "the hovered view takes the handle");
-    }
-
-    #[test]
-    fn a_drag_stays_with_the_view_it_started_in() {
-        let a = GizmoTool::new();
-        let b = GizmoTool::sharing(&a);
-        let cam = camera();
-        a.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
-        b.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
-        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
-        let start = x_handle_cursor(&cam);
-
-        // Begin the drag in A.
-        a.input(
-            &ctx(&params, &src, &data),
-            full_rect(),
-            &Input::at(start.to_array()).press(),
-        );
-        assert!(a.is_active());
-
-        // The pointer crosses into B's pane with the button held. B does not take
-        // over; A keeps reporting the drag.
-        let mut held = Input::at([start.x + 60.0, start.y]);
-        held.primary_down = true;
-        let from_b = b.input(&ctx(&params, &src, &data), full_rect(), &held);
-        let from_a = a.input(
-            &ctx_hovered(&params, &src, &data, false),
-            full_rect(),
-            &held,
-        );
-        assert!(a.is_driving() && !b.is_driving());
-        assert!(from_b.output.is_none(), "the other view stays quiet");
-        assert!(from_a.output.is_some(), "the starting view keeps the drag");
-
-        // Release ends the session; the hovered view drives again.
-        let mut released = Input::at([start.x + 60.0, start.y]);
-        released.primary_released = true;
-        a.input(
-            &ctx_hovered(&params, &src, &data, false),
-            full_rect(),
-            &released,
-        );
-        assert!(!a.is_active());
-        b.input(
-            &ctx(&params, &src, &data),
-            full_rect(),
-            &Input::at([5.0, 5.0]),
-        );
-        assert!(b.is_driving());
-    }
-
-    #[test]
-    fn shared_tools_share_the_mode() {
-        let a = GizmoTool::new();
-        let b = GizmoTool::sharing(&a);
-        a.set_mode(GizmoMode::Rotate);
-        assert_eq!(b.mode(), GizmoMode::Rotate);
-    }
-
-    #[test]
-    fn dragging_a_handle_reports_a_typed_update() {
-        let tool = GizmoTool::new();
-        let cam = camera();
-        tool.set_frame(cam.clone(), Some(Vec3::ZERO), ActionFrame::default());
-        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
-        let start = x_handle_cursor(&cam);
-
-        // Press on the X arm to begin the drag.
-        let press = tool.input(
-            &ctx(&params, &src, &data),
-            full_rect(),
-            &Input::at(start.to_array()).press(),
-        );
-        assert!(press.capture_pointer, "a live drag holds the pointer");
-
-        // Drag further along the screen-projected X direction, primary still held.
-        let mut held = Input::at([start.x + 60.0, start.y]);
-        held.primary_down = true;
-        let dragged = tool.input(&ctx(&params, &src, &data), full_rect(), &held);
-
-        let value = dragged.output.expect("a drag frame reports a result");
-        match serde_json::from_value::<GizmoResult>(value).expect("the result deserialises") {
-            GizmoResult::Update(delta) => {
-                assert!(
-                    delta.translation.iter().any(|v| v.abs() > 1e-4),
-                    "the drag moved the object: {delta:?}"
-                );
-            }
-            other => panic!("expected an update, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn a_typed_number_reaches_the_host_through_the_delta() {
-        use viewport_lib_types::input::{Action, ResolvedActionState};
-
-        let tool = GizmoTool::new();
-        let cam = camera();
-        let (params, src, data) = (serde_json::Value::Null, NoSource, NoData);
-        let cursor = Input::at([640.0, 360.0]);
-
-        // Press G to begin a keyboard move.
-        let mut begin = ActionFrame::default();
-        begin
-            .actions
-            .insert(Action::BeginMove, ResolvedActionState::Pressed);
-        tool.set_frame(cam.clone(), Some(Vec3::ZERO), begin);
-        tool.input(&ctx(&params, &src, &data), full_rect(), &cursor);
-        assert!(tool.is_active(), "G starts a session");
-
-        // Type "5". It lands on the first axis and must reach the host, not just the
-        // readout: a number typed into a session is how the value is set at all.
-        let mut typed = ActionFrame::default();
-        typed.typed_chars = vec!['5'];
-        tool.set_frame(cam.clone(), Some(Vec3::ZERO), typed);
-        let out = tool.input(&ctx(&params, &src, &data), full_rect(), &cursor);
-
-        let value = out.output.expect("the typed frame reports a result");
-        match serde_json::from_value::<GizmoResult>(value).expect("the result deserialises") {
-            GizmoResult::Update(delta) => {
-                assert_eq!(
-                    delta.position_override[0],
-                    Some(5.0),
-                    "the typed value carries"
-                );
-                assert_eq!(
-                    delta.position()[0],
-                    5.0,
-                    "and stands in for the dragged one"
-                );
-                assert_eq!(delta.position_override[1], None, "untyped axes stay open");
-            }
-            other => panic!("expected an update, got {other:?}"),
-        }
     }
 
     #[test]

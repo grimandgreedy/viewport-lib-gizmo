@@ -4,13 +4,13 @@
 //! right views of one scene, each rendered through viewport-lib's multi-viewport
 //! API into its own offscreen target and blitted into a quarter of the window.
 //!
-//! Each view has its own toolkit screen holding one `GizmoTool` pane, built with
-//! [`GizmoTool::sharing`] so all four share one driver. The toolkit works out
-//! which pane the pointer is on, and that pane's tool drives; a drag or a
-//! G / R / S session stays with the tool it started in. The others paint the
-//! gizmo sized for their own camera, and show the axis being changed while a
-//! session runs. A transform therefore moves the cube once, however many views
-//! show it.
+//! One `GizmoTool` is registered once, and each view has its own toolkit screen
+//! holding one pane of it, with an id of its own. The panes share the tool's one
+//! driver. The toolkit works out which pane the pointer is on, and that pane
+//! drives; a drag or a G / R / S session stays with the pane it started in. The
+//! others paint the gizmo through their own view's camera, and show the axis being
+//! changed while a session runs. A transform therefore moves the cube once,
+//! however many views show it.
 //!
 //! Drag a handle to move the cube; drag empty space to orbit the view under the
 //! cursor. Tab or Q cycles the mode, backtick (`) toggles relative / objective,
@@ -38,19 +38,14 @@ use viewport_lib_ui::{
 };
 
 use viewport_lib_gizmo::ActiveView;
-use viewport_lib_gizmo::ui::{GizmoDelta, GizmoResult, GizmoTool};
+use viewport_lib_gizmo::ui::{GIZMO_KIND, GizmoDelta, GizmoResult, GizmoTool};
 use viewport_lib_gizmo::{GizmoMode, ValueMode};
 
 const LABELS: [&str; 4] = ["Perspective", "Top", "Front", "Right"];
-/// The toolkit kind each view's tool is registered under.
-const KINDS: [&str; 4] = [
-    "gizmo-perspective",
-    "gizmo-top",
-    "gizmo-front",
-    "gizmo-right",
-];
 const ROOT: u32 = 0;
-const PANE: u32 = 1;
+/// Each view's gizmo pane. The tool keys a pane's camera by its id, so the four
+/// differ even though each sits on a screen of its own.
+const PANES: [u32; 4] = [1, 2, 3, 4];
 
 fn no_textures(_key: &str) -> Option<vpl::OverlayTextureId> {
     None
@@ -59,13 +54,14 @@ fn no_fonts(_key: &str) -> Option<vpl::FontHandle> {
     None
 }
 
-/// One quadrant: its camera and input, its toolkit screen and tool, the renderer
-/// viewport it draws through, and the offscreen target the window blits from.
+/// One quadrant: its camera and input, its toolkit screen and gizmo pane, the
+/// renderer viewport it draws through, and the offscreen target the window blits
+/// from.
 struct View {
     camera: Camera,
     orbit: OrbitCameraController,
     input: ViewportInput,
-    tool: Arc<GizmoTool>,
+    pane: u32,
     screen: Screen,
     ui: UiState,
     /// True when the toolkit took the pointer last frame: the left button and
@@ -84,6 +80,8 @@ struct State {
     base: Mat4,
     current: Mat4,
     views: Vec<View>,
+    /// The one tool behind every view's pane.
+    tool: Arc<GizmoTool>,
     registry: WidgetRegistry,
     translator: InputTranslator,
     active: ActiveView,
@@ -123,16 +121,18 @@ fn cameras() -> [Camera; 4] {
     ]
 }
 
-/// A screen holding one gizmo pane of the given kind, covering the view.
-fn pane_screen(kind: &str) -> Screen {
+/// A screen holding one gizmo pane, covering the view.
+fn pane_screen(pane: u32) -> Screen {
     Screen::new(
         Widget::new(ROOT, WidgetKind::Panel)
             .with_layout(Layout::Free)
-            .with_child(Widget::custom(PANE, kind, serde_json::Value::Null).placed(
-                Alignment::TOP_LEFT,
-                [0.0, 0.0],
-                [640.0, 400.0],
-            )),
+            .with_child(
+                Widget::custom(pane, GIZMO_KIND, serde_json::Value::Null).placed(
+                    Alignment::TOP_LEFT,
+                    [0.0, 0.0],
+                    [640.0, 400.0],
+                ),
+            ),
     )
 }
 
@@ -255,26 +255,18 @@ fn main() {
                     )
                 });
 
-                // Build the views once. The first tool owns the driver; the other
-                // three share it.
+                // Build the views once, each with a pane of the one tool.
                 if s.views.is_empty() {
-                    let mut first: Option<Arc<GizmoTool>> = None;
+                    s.registry
+                        .register(GIZMO_KIND, s.tool.clone())
+                        .expect("the registry is empty");
                     for (i, (camera, rect)) in cameras().into_iter().zip(&s.rects).enumerate() {
-                        // The registry holds handlers as `Arc<dyn CustomWidget>`, so the
-                        // tool is an `Arc` even though it is single-threaded.
-                        #[allow(clippy::arc_with_non_send_sync)]
-                        let tool = Arc::new(match &first {
-                            None => GizmoTool::new(),
-                            Some(owner) => GizmoTool::sharing(owner),
-                        });
-                        first.get_or_insert_with(|| tool.clone());
-                        s.registry.register(KINDS[i], tool.clone());
                         s.views.push(View {
                             camera,
                             orbit: OrbitCameraController::new_stateless(),
                             input: ViewportInput::from_preset(BindingPreset::Default),
-                            tool,
-                            screen: pane_screen(KINDS[i]),
+                            pane: PANES[i],
+                            screen: pane_screen(PANES[i]),
                             ui: UiState::new(),
                             grabbing: false,
                             id: ctx.renderer_mut().create_viewport(&device),
@@ -314,8 +306,9 @@ fn main() {
                     s.last_active = active;
                 }
 
-                // Mode, space and value mode are shared, so any view's tool sets them.
-                let tool = s.views[0].tool.clone();
+                // Mode, space and value mode belong to the tool, so they hold in
+                // every view.
+                let tool = s.tool.clone();
                 for ev in &events {
                     match ev {
                         ViewportEvent::MouseButton { state, .. } => {
@@ -369,7 +362,7 @@ fn main() {
 
                 // Run each view's toolkit screen with the window input moved into the
                 // view's own pixels. The toolkit hovers only the pane under the
-                // cursor, which is how the shared tools pick the one that drives.
+                // cursor, which is how the tool picks the pane that drives.
                 let ui_events: Vec<ViewportEvent> = events
                     .iter()
                     .filter(|ev| !matches!(ev, ViewportEvent::Wheel { .. }))
@@ -377,16 +370,17 @@ fn main() {
                     .collect();
                 let input = s.translator.frame(&ui_events);
                 let centre = s.current.col(3).truncate();
+                // The window's unfiltered input, which carries the G / R / S keys even
+                // while the camera has given up the pointer. Each pane's camera is set
+                // below.
+                tool.set_selection(Some(centre), action.clone());
                 let mut ui_cursor = None;
                 {
                     let measure = ShapedTextMeasurer::new(ctx.resources(), no_fonts);
                     for (i, view) in s.views.iter_mut().enumerate() {
                         let (origin, size) = logical[i];
-                        // The window's unfiltered input, which carries the G / R / S keys
-                        // even while the camera has given up the pointer.
-                        view.tool
-                            .set_frame(view.camera.clone(), Some(centre), action.clone());
-                        if let Some(w) = view.screen.root.find_mut(PANE) {
+                        tool.set_view_camera(view.pane, view.camera.clone());
+                        if let Some(w) = view.screen.root.find_mut(view.pane) {
                             w.size = size.into();
                         }
                         let mut local = input.clone();
@@ -398,11 +392,11 @@ fn main() {
                         if active == Some(i) {
                             ui_cursor = Some(view.ui.cursor());
                         }
-                        // Only the driving tool reports, so each change arrives once.
-                        match custom_output::<GizmoResult>(&result.events, PANE) {
+                        // Only the driving pane reports, so each change arrives once.
+                        match custom_output::<GizmoResult>(&result.events, view.pane) {
                             Ok(Some(GizmoResult::Update(delta))) => {
                                 let pivot = s.base.col(3).truncate();
-                                s.current = apply(&delta, pivot, s.base, view.tool.value_mode());
+                                s.current = apply(&delta, pivot, s.base, tool.value_mode());
                             }
                             Ok(Some(GizmoResult::Commit)) => s.base = s.current,
                             Ok(Some(GizmoResult::Cancel))
