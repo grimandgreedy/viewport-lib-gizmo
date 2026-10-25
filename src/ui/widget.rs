@@ -44,7 +44,7 @@ use std::sync::{LazyLock, Mutex, MutexGuard};
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
 
-use viewport_lib_ui_extend::custom::{CustomCtx, CustomInput, CustomWidget};
+use viewport_lib_ui_extend::custom::{CustomChrome, CustomCtx, CustomInput, CustomWidget};
 use viewport_lib_ui_extend::document::{Style, WidgetId};
 use viewport_lib_ui_extend::draw::DrawList;
 use viewport_lib_ui_extend::geometry::Rect;
@@ -353,6 +353,13 @@ impl CustomWidget for GizmoTool {
         [256.0, 256.0]
     }
 
+    /// Faded while disabled, as a control is, but never ringed: the pane covers
+    /// the whole viewport, so a ring would outline the view, and its keyboard
+    /// sessions come from the host's resolved input rather than from focus.
+    fn chrome(&self) -> CustomChrome {
+        CustomChrome::toolkit().with_focus_ring(false)
+    }
+
     fn paint(&self, ctx: &CustomCtx, _style: &Style, rect: Rect, out: &mut DrawList) {
         let frame = frame(ctx);
         let Some(centre) = frame.selection_centre else {
@@ -626,6 +633,13 @@ mod tests {
             near,
             "the tool keeps no camera of its own between frames"
         );
+    }
+
+    #[test]
+    fn the_pane_fades_when_disabled_but_draws_no_focus_ring() {
+        let chrome = GizmoTool::new().chrome();
+        assert!(!chrome.focus_ring);
+        assert!(chrome.disabled_dim);
     }
 
     #[test]
