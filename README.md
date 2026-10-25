@@ -155,12 +155,16 @@ the gizmo or the camera. Results come back as a typed `GizmoResult`. The module
 also has a readout panel: an x / y / z vector field with a relative / objective
 toggle and a badge for the current mode.
 
-For several views of one selection, put a tool in each view's pane and build
-all but the first with `GizmoTool::sharing(&first)`. The tools share one driver:
-the pane the pointer is on drives it, a drag or a G / R / S session stays with
-the pane it started in, and the others paint the gizmo for their own camera.
+Register one `GizmoTool` under `GIZMO_KIND` (`"vpl.gizmo"`) and it serves
+every gizmo node on the screen. For several views of one selection, put a pane of
+that kind in each view, give each its own widget id, and set each view's camera
+with `set_view_camera(id, camera)`. The panes share one driver: the pane the
+pointer is on drives it, a drag or a G / R / S session stays with the pane it
+started in, and the others paint the gizmo for their own camera. What a pane
+keeps between frames lives in the toolkit's per-node state, so the tool holds
+nothing per pane.
 
-The feature pulls only `viewport-lib-ui-core` and `viewport-lib-ui-document`,
+The feature pulls only `viewport-lib-ui-extend` and `viewport-lib-ui-document`,
 which are renderer-free, so it still does not depend on viewport-lib or wgpu.
 
 ```toml

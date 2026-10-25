@@ -8,8 +8,9 @@
 //! [`build_gizmo_overlays`](crate::build_gizmo_overlays) stay in the core crate:
 //! this module only places their output.
 //!
-//! It depends only on `viewport-lib-ui-core` and `viewport-lib-ui-document`, both
-//! renderer-free, so enabling the `ui` feature does not pull viewport-lib or wgpu.
+//! The widget is written against `viewport-lib-ui-extend`, and the readout panel
+//! against `viewport-lib-ui-document`. Both are renderer-free, so enabling the `ui`
+//! feature does not pull viewport-lib or wgpu.
 //!
 //! The base frontend ([`build_gizmo_overlays`](crate::build_gizmo_overlays), which
 //! produces `viewport-lib-types` overlay items) is unchanged and remains the path
