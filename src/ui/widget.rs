@@ -383,7 +383,7 @@ impl CustomWidget for GizmoTool {
         let driver = &shared.session.driver;
         let highlight = if driver.is_active() {
             driver.highlight(false)
-        } else if ctx.state.hovered {
+        } else if ctx.interaction.hovered {
             ctx.state::<PaneState>().hovered
         } else {
             GizmoAxis::None
@@ -421,7 +421,7 @@ impl CustomWidget for GizmoTool {
         // The hovered pane takes over the driver while no session runs, and only the
         // holder drives, so the driver sees each frame's input once. A pane with no
         // other to compete with takes it on its first frame.
-        if !session.driver.is_active() && (ctx.state.hovered || session.holder.is_none()) {
+        if !session.driver.is_active() && (ctx.interaction.hovered || session.holder.is_none()) {
             session.holder = Some(view);
         }
         if session.holder != Some(view) {
@@ -444,7 +444,7 @@ impl CustomWidget for GizmoTool {
         // the toolkit reports which widget the pointer is really on, and chrome above
         // the pane owns it. A live session keeps the pointer wherever it travels, so a
         // drag or a keyboard move carries on across a panel.
-        let ours = ctx.state.hovered || session.driver.is_active();
+        let ours = ctx.interaction.hovered || session.driver.is_active();
         // Withhold the cursor when it is not ours, so the hit-test clears the hovered
         // handle instead of lighting one up under a panel.
         let cursor_viewport = ours.then(|| cursor_abs - Vec2::new(rect.min[0], rect.min[1]));
