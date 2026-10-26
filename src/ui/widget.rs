@@ -432,7 +432,7 @@ impl CustomWidget for GizmoTool {
         }
 
         let viewport = Vec2::new(rect.width(), rect.height());
-        let cursor_abs = Vec2::new(input.cursor[0], input.cursor[1]);
+        let cursor_abs = Vec2::new(input.pointer.cursor[0], input.pointer.cursor[1]);
         let pointer_delta = match pane.last_cursor {
             Some(previous) => cursor_abs - previous,
             None => Vec2::ZERO,
@@ -459,9 +459,9 @@ impl CustomWidget for GizmoTool {
             cursor_viewport,
             pointer_delta,
             selection_center: frame.selection_centre,
-            drag_started: ours && input.primary_pressed,
-            dragging: ours && input.primary_down,
-            clicked: ours && input.primary_released,
+            drag_started: ours && input.buttons.primary_pressed,
+            dragging: ours && input.buttons.primary_down,
+            clicked: ours && input.buttons.primary_released,
         });
 
         let active = session.driver.is_active();

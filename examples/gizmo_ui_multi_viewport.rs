@@ -391,8 +391,8 @@ fn main() {
                             w.size = size.into();
                         }
                         let mut local = input.clone();
-                        local.cursor[0] -= origin.x;
-                        local.cursor[1] -= origin.y;
+                        local.pointer.cursor[0] -= origin.x;
+                        local.pointer.cursor[1] -= origin.y;
                         let frame = Frame::new(size.into(), &measure, &s.registry)
                             .with_host(HostSources::default().with_map(&map));
                         let result = view.ui.update_frame(&mut view.screen, &local, &frame);
