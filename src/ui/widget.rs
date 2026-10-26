@@ -546,6 +546,7 @@ mod tests {
     use super::*;
     use glam::Vec3;
     use viewport_lib_types::camera::Camera;
+    use viewport_lib_ui_extend::custom::{CustomHost, CustomNode};
     use viewport_lib_ui_extend::sources::HostMap;
 
     const VP: [f32; 2] = [1280.0, 720.0];
@@ -566,8 +567,9 @@ mod tests {
     fn paint(tool: &GizmoTool, map: &HostMap) -> DrawList {
         let params = serde_json::Value::Null;
         let mut list = DrawList::new();
+        let host = CustomHost::new().with_map(map);
         tool.paint(
-            &CustomCtx::new(1, GIZMO_KIND, &params).with_map(map),
+            &CustomCtx::new(CustomNode::new(1, GIZMO_KIND, &params)).with_host(host),
             &Style::default(),
             Rect::new([0.0, 0.0], VP),
             &mut list,
