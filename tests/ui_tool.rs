@@ -104,7 +104,7 @@ fn rendered_in(h: &Harness, tool: &Arc<GizmoTool>, map: &HostMap) -> Vec<DrawCom
     let registry = registry(tool);
     let measure = ApproxMeasure::default();
     let frame = Frame::new(VP, &measure, &registry).with_host(HostSources::default().with_map(map));
-    h.ui().render(h.screen(), &frame).commands
+    h.ui().render(h.screen(), &frame).commands.to_vec()
 }
 
 /// What the harness's screen draws through the default camera.
