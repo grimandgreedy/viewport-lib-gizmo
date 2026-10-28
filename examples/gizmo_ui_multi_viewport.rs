@@ -321,6 +321,7 @@ fn main() {
                             key,
                             state: ButtonState::Pressed,
                             repeat: false,
+                            ..
                         } => match key {
                             KeyCode::Tab | KeyCode::Q if !tool.is_active() => {
                                 tool.set_mode(match tool.mode() {

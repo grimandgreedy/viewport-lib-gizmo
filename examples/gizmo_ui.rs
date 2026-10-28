@@ -244,6 +244,7 @@ fn main() {
                             key,
                             state: ButtonState::Pressed,
                             repeat: false,
+                            ..
                         } = ev
                         {
                             let a = app.borrow();

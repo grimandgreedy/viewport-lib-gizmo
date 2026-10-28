@@ -282,6 +282,7 @@ fn main() {
                             key,
                             state: ButtonState::Pressed,
                             repeat: false,
+                            ..
                         } if active.is_some() => match key {
                             KeyCode::Tab | KeyCode::Q => s.driver.cycle_mode(),
                             KeyCode::Backtick => s.driver.toggle_value_mode(),

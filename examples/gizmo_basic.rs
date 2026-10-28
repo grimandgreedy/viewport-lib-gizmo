@@ -131,6 +131,7 @@ fn main() {
                             key,
                             state: ButtonState::Pressed,
                             repeat: false,
+                            ..
                         } = ev
                         {
                             match key {
