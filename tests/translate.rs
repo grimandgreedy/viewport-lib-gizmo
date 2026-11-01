@@ -289,3 +289,29 @@ fn removing_the_selection_mid_drag_cancels_it() {
     assert!(!rig.driver.is_active());
     assert_eq!(rig.release(), ManipResult::None);
 }
+
+#[test]
+fn a_camera_drag_crossing_the_gizmo_does_not_hover_it() {
+    // A drag that starts in the scene is the camera's. Passing over a handle
+    // must not light it, or the host hands the pointer to the gizmo mid-orbit.
+    let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
+    let handle = rig.px(x_arm(&rig));
+    let scene = handle + Vec2::new(0.0, 250.0);
+    assert_eq!(rig.press(scene), ManipResult::None);
+    assert!(!rig.driver.is_active());
+    rig.drag_path(handle, 6);
+    assert_eq!(rig.driver.hovered_axis(), GizmoAxis::None);
+    assert_eq!(rig.driver.highlight(true), GizmoAxis::None);
+    // Let go over the handle: from the next frame it hovers as usual.
+    rig.release();
+    assert_eq!(rig.driver.hovered_axis(), GizmoAxis::X);
+}
+
+#[test]
+fn a_button_held_from_before_the_driver_saw_it_does_not_hover() {
+    let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
+    rig.button_down = true;
+    rig.drag_to(rig.px(x_arm(&rig)));
+    assert_eq!(rig.driver.hovered_axis(), GizmoAxis::None);
+    assert!(!rig.driver.is_active());
+}

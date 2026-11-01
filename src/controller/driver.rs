@@ -174,7 +174,8 @@ impl GizmoDriver {
         self.controller.is_active()
     }
 
-    /// The axis currently under the cursor.
+    /// The axis currently under the cursor, or [`GizmoAxis::None`] while a
+    /// press that did not start on the gizmo is held.
     pub fn hovered_axis(&self) -> GizmoAxis {
         self.gizmo.hovered_axis
     }
@@ -314,9 +315,17 @@ impl GizmoDriver {
         }
 
         // Update the hovered axis only when no session is active; during a drag
-        // the active axis is fixed.
+        // the active axis is fixed. A button held from a press that did not
+        // start a session (a camera drag begun in the scene, or a press the
+        // driver never saw) belongs to what it started, so nothing is hovered
+        // while it passes over the handles: the host keeps routing it to the
+        // camera instead of handing the pointer to the gizmo mid-drag.
+        let foreign_press = input.dragging && !input.drag_started;
         if !self.controller.is_active() {
-            if let (Some(center), Some(cursor)) = (self.gizmo_center, input.cursor_viewport) {
+            if foreign_press {
+                self.gizmo.hovered_axis = GizmoAxis::None;
+            } else if let (Some(center), Some(cursor)) = (self.gizmo_center, input.cursor_viewport)
+            {
                 let (ray_origin, ray_dir) =
                     gizmo::cursor_ray(input.camera, cursor, input.viewport_size);
                 self.gizmo.hovered_axis = self.gizmo.hit_test_oriented(
