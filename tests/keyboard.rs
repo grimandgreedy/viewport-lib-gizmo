@@ -154,8 +154,8 @@ fn changing_the_constraint_clears_typed_values() {
 
 #[test]
 fn a_typed_character_that_is_not_a_number_does_not_freeze_the_drag() {
-    // `typed_chars` should arrive filtered, but a custom resolver may pass every
-    // character. The X that picks the axis must not lock the cursor out.
+    // `typed_chars` carries every character typed while the viewport is focused.
+    // The X that picks the axis must not lock the cursor out.
     let mut rig = moving();
     let mut frame = pressed(&[Action::ConstrainX]);
     frame.typed_chars.push('x');
