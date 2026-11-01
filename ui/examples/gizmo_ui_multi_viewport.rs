@@ -25,12 +25,14 @@ use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec2, Vec3};
 use viewport_lib as vpl;
+use vpl::input::adapters::winit as vpl_winit;
 use vpl::scene::Scene;
 use vpl::{
-    AppConfig, BindingPreset, BlitTexture, ButtonState, Camera, CameraFrame, FrameData, KeyCode,
-    LabelItem, Material, NodeId, OffscreenViewportTarget, OrbitCameraController, PointerOwnership,
-    SceneFrame, Selection, ViewportContext, ViewportEvent, ViewportId, ViewportInput, WindowConfig,
-    forward_to_viewport, primitives,
+    Action, AppConfig, BindingPreset, BlitTexture, ButtonState, Camera, CameraFrame, FrameData,
+    KeyCode, LabelItem, Material, ModifiersMatch, NodeId, OffscreenViewportTarget,
+    OrbitCameraController, SceneFrame, Selection, ViewportBinding, ViewportContext, ViewportEvent,
+    ViewportGesture, ViewportId, ViewportInput, WindowConfig, primitives,
+    viewport_default_bindings,
 };
 
 use viewport_lib_ui::{
@@ -156,24 +158,19 @@ fn apply(delta: &GizmoDelta, pivot: Vec3, base: Mat4, values: ValueMode) -> Mat4
     m
 }
 
-/// Shift a pointer position into a view's local space; other events pass through.
-fn to_view(ev: &ViewportEvent, origin: Vec2) -> ViewportEvent {
-    match ev {
-        ViewportEvent::PointerMoved { position } => ViewportEvent::PointerMoved {
-            position: *position - origin,
+/// The default bindings, with Q also cycling the gizmo mode. Tab already does,
+/// and Q is bound by the character it types so it is the key labelled Q on any
+/// layout.
+fn gizmo_bindings() -> Vec<ViewportBinding> {
+    let mut bindings = viewport_default_bindings();
+    bindings.push(ViewportBinding::new(
+        Action::CycleGizmoMode,
+        ViewportGesture::CharPress {
+            ch: 'q',
+            modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
         },
-        other => other.clone(),
-    }
-}
-
-/// Events every view takes, whichever one has the pointer. A view that missed a
-/// modifier's release would read the modifier as still held, and its left drag
-/// would stop orbiting.
-fn every_view(ev: &ViewportEvent) -> bool {
-    matches!(
-        ev,
-        ViewportEvent::ModifiersChanged(_) | ViewportEvent::FocusLost
-    )
+    ));
+    bindings
 }
 
 fn main() {
@@ -204,6 +201,9 @@ fn main() {
                         0.35, 0.35, 0.4,
                     )))
                     .unwrap();
+                // The window's resolver feeds the tool, so its bindings carry the
+                // tool's shortcuts.
+                instance.set_bindings(gizmo_bindings());
                 let mut s = setup_state.borrow_mut();
                 let node = s.scene.add(Some(cube), Mat4::IDENTITY, blue);
                 for pos in [
@@ -315,44 +315,40 @@ fn main() {
                         }
                         ViewportEvent::FocusLost => s.button_held = false,
                         ViewportEvent::Key {
-                            key,
+                            key: KeyCode::Backtick,
                             state: ButtonState::Pressed,
                             repeat: false,
                             ..
-                        } => match key {
-                            KeyCode::Tab | KeyCode::Q if !tool.is_active() => {
-                                tool.set_mode(match tool.mode() {
-                                    GizmoMode::Translate => GizmoMode::Rotate,
-                                    GizmoMode::Rotate => GizmoMode::Scale,
-                                    _ => GizmoMode::Translate,
-                                });
-                            }
-                            KeyCode::Backtick => tool.set_value_mode(tool.value_mode().toggled()),
-                            _ => {}
-                        },
+                        } => tool.set_value_mode(tool.value_mode().toggled()),
                         _ => {}
                     }
                 }
+                // Tab or Q cycles the mode, except during a session, where Tab
+                // advances the numeric axis instead.
+                if !tool.is_active() && action.is_active(Action::CycleGizmoMode) {
+                    tool.set_mode(match tool.mode() {
+                        GizmoMode::Translate => GizmoMode::Rotate,
+                        GizmoMode::Rotate => GizmoMode::Scale,
+                        _ => GizmoMode::Translate,
+                    });
+                }
 
-                // Navigation; only the active view gets events. While a view's
-                // toolkit held the pointer last frame, a left press or pointer move
-                // is the toolkit's and does not also orbit; the wheel, modifier
-                // changes and the other buttons still reach the camera, so zooming
-                // and panning keep working over a handle.
+                // Navigation. Only the active view owns the input; every view is
+                // given every event and its resolver drops what is not its own. While
+                // a view's toolkit held the pointer last frame, a left press or
+                // pointer move is the toolkit's and does not also orbit; the wheel,
+                // modifier changes and the other buttons still reach the camera, so
+                // zooming and panning keep working over a handle.
                 for (i, view) in s.views.iter_mut().enumerate() {
                     let (origin, size) = logical[i];
-                    let ownership = match active == Some(i) {
-                        false => PointerOwnership::Elsewhere,
-                        true if view.grabbing => PointerOwnership::Inside,
-                        true => PointerOwnership::Owned,
-                    };
+                    let driving = active == Some(i);
+                    // The runner only delivers events while the window has them.
+                    let ownership =
+                        vpl_winit::ownership(true, driving, false, view.grabbing, !driving);
                     view.input
-                        .begin_frame(ViewportContext::with_ownership(ownership, size.into()));
-                    let taking = active == Some(i);
+                        .begin_frame(ViewportContext::new(ownership, size.into()));
                     for ev in &events {
-                        if every_view(ev) || (taking && forward_to_viewport(ev, ownership)) {
-                            view.input.push_event(to_view(ev, origin));
-                        }
+                        view.input.push_event(ev.offset_by(origin));
                     }
                     view.orbit.set_viewport_size(size.into());
                     view.orbit
@@ -395,6 +391,12 @@ fn main() {
                             .with_host(HostSources::default().with_map(&map));
                         let result = view.ui.update_frame(&mut view.screen, &local, &frame);
                         view.grabbing = result.capture.pointer;
+                        // This view's ownership was decided last frame, so a press the
+                        // toolkit takes with no hover frame before it (a touch, or a move
+                        // and press in one frame) has already armed its camera's drag.
+                        if action.pointer.pressed && view.grabbing {
+                            view.input.cancel_gesture();
+                        }
                         if active == Some(i) {
                             ui_cursor = Some(view.ui.cursor());
                         }

@@ -15,9 +15,10 @@ use std::rc::Rc;
 use glam::{Mat4, Vec2, Vec3};
 use viewport_lib as vpl;
 use vpl::{
-    AppConfig, BindingPreset, ButtonState, Colour, KeyCode, Material, NodeId,
-    OrbitCameraController, PointerOwnership, ViewportApp, ViewportContext, ViewportEvent,
-    ViewportInput, WindowConfig, forward_to_viewport, primitives,
+    Action, AppConfig, BindingPreset, ButtonState, Colour, InputOwnership, KeyCode,
+    KeyboardOwnership, Material, ModifiersMatch, NodeId, OrbitCameraController, PointerOwnership,
+    ViewportApp, ViewportBinding, ViewportContext, ViewportEvent, ViewportGesture, ViewportInput,
+    WindowConfig, primitives, viewport_default_bindings,
 };
 
 use viewport_lib_gizmo::{
@@ -37,6 +38,24 @@ struct State {
     /// True while a handle is hovered or a session is active: the left button and
     /// pointer moves are the gizmo's, not the camera's.
     grabbing: bool,
+    /// The camera's own resolver. The gizmo reads the runner's frame, which sees
+    /// every press; this one is kept off the pointer while the gizmo wants it.
+    camera_input: ViewportInput,
+}
+
+/// The default bindings, with Q also cycling the gizmo mode. Tab already does,
+/// and Q is bound by the character it types so it is the key labelled Q on any
+/// layout.
+fn gizmo_bindings() -> Vec<ViewportBinding> {
+    let mut bindings = viewport_default_bindings();
+    bindings.push(ViewportBinding::new(
+        Action::CycleGizmoMode,
+        ViewportGesture::CharPress {
+            ch: 'q',
+            modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
+        },
+    ));
+    bindings
 }
 
 /// Compose a transform delta around a world pivot onto a base transform. Numeric
@@ -73,6 +92,7 @@ fn main() {
         driver: GizmoDriver::new(),
         style: GizmoStyle::default(),
         grabbing: false,
+        camera_input: ViewportInput::from_preset(BindingPreset::Default),
     }));
 
     ViewportApp::new(AppConfig::default())
@@ -94,6 +114,7 @@ fn main() {
                     let transform = Mat4::from_translation(Vec3::ZERO);
                     let node = session.scene_mut().add(Some(cube), transform, blue);
                     session.camera_mut().set_orbit_distance(8.0);
+                    session.set_bindings(gizmo_bindings());
                     let mut s = state.borrow_mut();
                     s.node = Some(node);
                     s.base = transform;
@@ -105,47 +126,44 @@ fn main() {
             {
                 let state = state.clone();
                 let mut orbit = OrbitCameraController::new_stateless();
-                let mut input = ViewportInput::from_preset(BindingPreset::Default);
                 move |ictx| {
                     let size = ictx.viewport_size();
                     // The size stays on the controller, which needs it to turn a pan in pixels
                     // into one in world units; the events go to the input, which owns the scheme
                     // that reads them.
                     orbit.set_viewport_size(size);
-                    // While a handle is hovered or a session runs, a left press or
-                    // pointer move is the gizmo's and does not also orbit; the wheel,
+                    let mut s = state.borrow_mut();
+                    // While a handle is hovered or a session runs, the pointer is only
+                    // inside as far as the camera is concerned: a left press or pointer
+                    // move is the gizmo's and does not also orbit, while the wheel,
                     // modifier changes and the other buttons still reach the camera,
                     // so zooming and panning keep working over a handle.
-                    let ownership = if state.borrow().grabbing {
+                    let pointer = if s.grabbing {
                         PointerOwnership::Inside
                     } else {
                         PointerOwnership::Owned
                     };
-                    input.begin_frame(ViewportContext::with_ownership(ownership, size));
+                    let ownership = InputOwnership {
+                        pointer,
+                        keyboard: KeyboardOwnership::Owned,
+                    };
+                    s.camera_input
+                        .begin_frame(ViewportContext::new(ownership, size));
                     for ev in ictx.events().to_vec() {
-                        // Tab or Q cycles the gizmo mode (translate -> rotate -> scale);
-                        // backtick toggles relative / objective values. cycle_mode is
-                        // ignored while a session is active, so during a G/R/S session Tab
-                        // still advances the numeric axis instead.
+                        // Backtick toggles relative / objective values.
                         if let ViewportEvent::Key {
-                            key,
+                            key: KeyCode::Backtick,
                             state: ButtonState::Pressed,
                             repeat: false,
                             ..
                         } = ev
                         {
-                            match key {
-                                KeyCode::Tab | KeyCode::Q => state.borrow_mut().driver.cycle_mode(),
-                                KeyCode::Backtick => state.borrow_mut().driver.toggle_value_mode(),
-                                _ => {}
-                            }
+                            s.driver.toggle_value_mode();
                         }
                         ictx.forward(ev.clone());
-                        if forward_to_viewport(&ev, ownership) {
-                            input.push_event(ev);
-                        }
+                        s.camera_input.push_event(ev);
                     }
-                    let actions = input.resolve();
+                    let actions = s.camera_input.resolve();
                     let dt = ictx.dt();
                     orbit.apply(ictx.camera_mut(), &actions, dt);
                 }
@@ -165,6 +183,14 @@ fn main() {
 
                     // The gizmo sits at the object's current position.
                     let center = s.current.col(3).truncate();
+                    let was_busy = s.grabbing;
+
+                    // Tab or Q cycles the gizmo mode (translate -> rotate -> scale).
+                    // cycle_mode is ignored while a session is active, so during a
+                    // G/R/S session Tab still advances the numeric axis instead.
+                    if ctx.action_frame().is_active(Action::CycleGizmoMode) {
+                        s.driver.cycle_mode();
+                    }
 
                     let result = s.driver.update(FrameInput {
                         action_frame: ctx.action_frame(),
@@ -210,6 +236,12 @@ fn main() {
                     // hovered or a drag is on.
                     s.grabbing = s.driver.is_active()
                         || s.driver.hovered_axis() != viewport_lib_gizmo::GizmoAxis::None;
+                    // The camera's ownership for this frame was decided last frame, so a
+                    // press the gizmo takes with no hover frame before it (a touch, or a
+                    // move and press in one frame) has already armed the camera's drag.
+                    if pointer.pressed && (was_busy || s.grabbing) {
+                        s.camera_input.cancel_gesture();
+                    }
 
                     // Draw the gizmo.
                     if let Some(gizmo_center) = s.driver.gizmo_center() {

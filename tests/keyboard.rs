@@ -154,11 +154,11 @@ fn changing_the_constraint_clears_typed_values() {
 
 #[test]
 fn a_typed_character_that_is_not_a_number_does_not_freeze_the_drag() {
-    // `typed_chars` carries every character typed while the viewport is focused.
+    // `text` carries every character typed while the viewport owns the keyboard.
     // The X that picks the axis must not lock the cursor out.
     let mut rig = moving();
     let mut frame = pressed(&[Action::ConstrainX]);
-    frame.typed_chars.push('x');
+    frame.text.push('x');
     rig.frame_with(&frame, rig.cursor, Vec2::ZERO, false, false);
     let d = update(rig.hover(rig.cursor.unwrap() + Vec2::new(80.0, 0.0)));
     assert!(d.translation.x.abs() > 0.0, "the drag still moves: {d:?}");

@@ -269,7 +269,7 @@ fn a_typed_number_reaches_the_host_through_the_delta() {
     // Type "5". It lands on the first axis and must reach the host, not just the
     // readout: a number typed into a session is how the value is set at all.
     let mut typed = ActionFrame::default();
-    typed.typed_chars = vec!['5'];
+    typed.text = vec!['5'];
     h.set_context(framed(camera(), typed));
     let events = h.feed(Input::at(centre));
     match result_of(&events, PANE).expect("the typed frame reports a result") {

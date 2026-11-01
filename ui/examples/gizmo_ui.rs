@@ -30,8 +30,10 @@ use std::sync::Arc;
 use glam::{Mat4, Quat, Vec3};
 use viewport_lib as vpl;
 use vpl::{
-    AppConfig, ButtonState, KeyCode, Material, NodeId, OrbitCameraController, PointerOwnership,
-    ViewportApp, ViewportContext, ViewportEvent, WindowConfig, forward_to_viewport, primitives,
+    Action, AppConfig, BindingPreset, ButtonState, InputOwnership, KeyCode, KeyboardOwnership,
+    Material, ModifiersMatch, NodeId, OrbitCameraController, PointerOwnership, ViewportApp,
+    ViewportBinding, ViewportContext, ViewportEvent, ViewportGesture, ViewportInput, WindowConfig,
+    primitives, viewport_default_bindings,
 };
 
 use viewport_lib_ui::{
@@ -55,6 +57,21 @@ const READOUT_ROW: u32 = 11;
 const READOUT: u32 = 12;
 const MODE_SEG: u32 = 13;
 const MODE_BADGE: u32 = 14;
+
+/// The default bindings, with Q also cycling the gizmo mode. Tab already does,
+/// and Q is bound by the character it types so it is the key labelled Q on any
+/// layout.
+fn gizmo_bindings() -> Vec<ViewportBinding> {
+    let mut bindings = viewport_default_bindings();
+    bindings.push(ViewportBinding::new(
+        Action::CycleGizmoMode,
+        ViewportGesture::CharPress {
+            ch: 'q',
+            modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
+        },
+    ));
+    bindings
+}
 
 /// No textures and no custom fonts: the example draws no images and uses the house font.
 fn no_textures(_key: &str) -> Option<vpl::OverlayTextureId> {
@@ -209,6 +226,9 @@ fn main() {
                     let transform = Mat4::from_translation(Vec3::ZERO);
                     let node = session.scene_mut().add(Some(cube), transform, blue);
                     session.camera_mut().set_orbit_distance(8.0);
+                    // The session's resolver feeds the gizmo, so its bindings carry the
+                    // gizmo's shortcuts.
+                    session.set_bindings(gizmo_bindings());
                     let mut a = app.borrow_mut();
                     a.node = Some(node);
                     a.base = transform;
@@ -217,18 +237,26 @@ fn main() {
             },
             {
                 let app = app.clone();
-                let mut orbit = OrbitCameraController::viewport_all();
+                let mut orbit = OrbitCameraController::new_stateless();
+                // The camera's own resolver. The session's sees every press and feeds
+                // the gizmo; this one is kept off the pointer while vpl-ui holds it.
+                let mut camera_input = ViewportInput::from_preset(BindingPreset::Default);
                 let mut translator = InputTranslator::new();
                 move |ictx| {
                     let vp_px = ictx.viewport_size();
                     // While vpl-ui held the pointer last frame, a left press or pointer
                     // move is its own and does not also orbit.
-                    let ownership = if app.borrow().grabbing {
+                    let pointer = if app.borrow().grabbing {
                         PointerOwnership::Inside
                     } else {
                         PointerOwnership::Owned
                     };
-                    orbit.begin_frame(ViewportContext::with_ownership(ownership, vp_px));
+                    let ownership = InputOwnership {
+                        pointer,
+                        keyboard: KeyboardOwnership::Owned,
+                    };
+                    camera_input.begin_frame(ViewportContext::new(ownership, vp_px));
+                    orbit.set_viewport_size(vp_px);
 
                     let raw = ictx.events().to_vec();
 
@@ -249,14 +277,6 @@ fn main() {
                         {
                             let a = app.borrow();
                             match key {
-                                KeyCode::Tab | KeyCode::Q => {
-                                    let next = match a.tool.mode() {
-                                        GizmoMode::Translate => GizmoMode::Rotate,
-                                        GizmoMode::Rotate => GizmoMode::Scale,
-                                        _ => GizmoMode::Translate,
-                                    };
-                                    a.tool.set_mode(next);
-                                }
                                 KeyCode::Backtick => {
                                     a.tool.set_value_mode(a.tool.value_mode().toggled())
                                 }
@@ -281,13 +301,12 @@ fn main() {
                         ictx.forward(ev.clone());
 
                         // The only thing the gizmo (or a panel) consumes is the left-button
-                        // drag, so that is the only thing withheld from the camera while the UI
-                        // holds the pointer. The wheel, modifier changes, and other buttons
-                        // always reach the camera, so zoom, cmd+scroll orbit, and shift+scroll
-                        // pan keep working even with the cursor over a handle.
-                        if forward_to_viewport(ev, ownership) {
-                            orbit.push_event(ev.clone());
-                        }
+                        // drag, so that is the only thing the camera's resolver drops while the
+                        // UI holds the pointer and it is only inside. The wheel, modifier
+                        // changes, and other buttons always reach the camera, so zoom,
+                        // cmd+scroll orbit, and shift+scroll pan keep working even with the
+                        // cursor over a handle.
+                        camera_input.push_event(ev.clone());
 
                         // vpl-ui sees pointer, buttons, keys, and modifier changes so its panels
                         // hover and click and the gizmo drag runs. The wheel is the camera's
@@ -296,11 +315,23 @@ fn main() {
                             ui_events.push(ev.clone());
                         }
                     }
-                    orbit.apply_to_camera(ictx.camera_mut());
+                    let dt = ictx.dt();
+                    orbit.apply(ictx.camera_mut(), &camera_input.resolve(), dt);
                     let camera = ictx.camera_mut().clone();
                     // Resolve this frame's input now that every event has been forwarded, so
                     // the gizmo sees the keyboard g/r/s, confirm/cancel, and numeric entry.
                     let action = ictx.resolve().clone();
+                    let pressed = action.pointer.pressed;
+                    // Tab or Q cycles the gizmo mode.
+                    if action.is_active(Action::CycleGizmoMode) {
+                        let a = app.borrow();
+                        let next = match a.tool.mode() {
+                            GizmoMode::Translate => GizmoMode::Rotate,
+                            GizmoMode::Rotate => GizmoMode::Scale,
+                            _ => GizmoMode::Translate,
+                        };
+                        a.tool.set_mode(next);
+                    }
                     let input = translator.frame(&ui_events);
                     let measure = ShapedTextMeasurer::new(ictx.resources(), no_fonts);
 
@@ -398,6 +429,12 @@ fn main() {
                     // Suppress orbit next frame whenever the UI took the pointer (a hovered
                     // handle, a live drag, or a click on the panel).
                     *grabbing = result.capture.pointer;
+                    // The camera's ownership for this frame was decided last frame, so a
+                    // press the UI takes with no hover frame before it (a touch, or a move
+                    // and press in one frame) has already armed the camera's drag.
+                    if pressed && *grabbing {
+                        camera_input.cancel_gesture();
+                    }
                     // The shape the UI wants for what the pointer is over: the gizmo's open hand
                     // over a handle, the closed one while dragging, whatever a control under it
                     // asks for otherwise. Applied in the render callback, which has the window.

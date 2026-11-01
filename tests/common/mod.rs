@@ -44,7 +44,7 @@ pub fn pressed(actions: &[Action]) -> ActionFrame {
 /// An action frame carrying typed characters.
 pub fn typed(chars: &str) -> ActionFrame {
     let mut frame = ActionFrame::default();
-    frame.typed_chars.extend(chars.chars());
+    frame.text.extend(chars.chars());
     frame
 }
 

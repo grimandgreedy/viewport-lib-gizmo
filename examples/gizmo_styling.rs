@@ -14,10 +14,10 @@
 use eframe::{egui, wgpu};
 use glam::{Mat4, Quat, Vec2, Vec3};
 use viewport_lib as vpl;
-use vpl::input::adapters::{from_egui_into, modifiers_from_egui};
+use vpl::input::adapters::{AdapterCtx, egui as vpl_egui};
 use vpl::{
-    Colour, Material, NodeId, OffscreenViewportTarget, OrbitCameraController, PointerOwnership,
-    ViewportContext, ViewportEvent, ViewportInstance, forward_to_viewport, primitives,
+    Colour, Material, NodeId, OffscreenViewportTarget, OrbitCameraController, ViewportContext,
+    ViewportInstance, primitives,
 };
 
 use viewport_lib_gizmo::{
@@ -111,6 +111,7 @@ fn main() -> eframe::Result {
                 driver: GizmoDriver::new(),
                 style: GizmoStyle::default(),
                 target: None,
+                tool_press: false,
             }))
         }),
     )
@@ -131,6 +132,8 @@ struct App {
     driver: GizmoDriver,
     style: GizmoStyle,
     target: Option<Target>,
+    /// The gizmo took the press that is still held, so the camera leaves it alone.
+    tool_press: bool,
 }
 
 impl eframe::App for App {
@@ -227,44 +230,27 @@ impl eframe::App for App {
                     self.target = Some(Target { inner, id });
                 }
 
-                // Who owns the pointer this frame. A drag or a gizmo session the
-                // viewport started holds it wherever the cursor goes, so the
-                // release, Enter, Escape and typed values still land after the
-                // cursor leaves. Otherwise the viewport owns the input while egui
-                // reports it hovered, which already accounts for anything drawn
-                // over it; under such chrome the pointer is only inside.
-                let pointer_in_rect = ui
-                    .input(|i| i.pointer.latest_pos())
-                    .is_some_and(|p| rect.contains(p));
-                let ownership = if response.dragged() || self.driver.is_active() {
-                    PointerOwnership::Grabbed
-                } else if response.hovered() {
-                    PointerOwnership::Owned
-                } else if pointer_in_rect {
-                    PointerOwnership::Inside
-                } else {
-                    PointerOwnership::Elsewhere
-                };
-                let vp_ctx =
-                    ViewportContext::with_ownership(ownership, [rect.width(), rect.height()]);
+                // Who owns the input this frame. A drag or a gizmo session the
+                // viewport started holds the pointer wherever the cursor goes, so
+                // the release, Enter, Escape and typed values still land after the
+                // cursor leaves; chrome drawn over the viewport leaves it only
+                // inside, and a focused egui widget keeps the keyboard.
+                let ownership =
+                    vpl_egui::ownership(&response, ui.ctx(), rect, self.driver.is_active());
+                let vp_ctx = ViewportContext::new(ownership, [rect.width(), rect.height()]);
                 self.session.begin_frame(vp_ctx);
                 self.session.set_pixels_per_point(ppp);
-                let origin = Vec2::new(rect.left(), rect.top());
+                let actx = AdapterCtx::new(1.0, Vec2::new(rect.left(), rect.top()));
+                let mut events = Vec::new();
                 ui.input(|i| {
-                    self.session.handle_event(ViewportEvent::ModifiersChanged(
-                        modifiers_from_egui(&i.modifiers),
-                    ));
-                    let mut forward = |ev: ViewportEvent| {
-                        if forward_to_viewport(&ev, ownership) {
-                            self.session.handle_event(ev);
-                        }
-                    };
-                    let mut events = Vec::new();
+                    vpl_egui::begin_frame(i, &actx, &mut events);
                     for event in &i.events {
-                        from_egui_into(event, origin, &mut events);
+                        vpl_egui::translate(event, &actx, &mut events);
                     }
-                    events.into_iter().for_each(&mut forward);
                 });
+                for ev in events {
+                    self.session.handle_event(ev);
+                }
 
                 // Resolve input, then drive the gizmo.
                 let af = self.session.resolve().clone();
@@ -272,6 +258,7 @@ impl eframe::App for App {
                 let viewport = [rect.width(), rect.height()];
                 let center = self.current.col(3).truncate();
 
+                let tool_was_busy = self.driver.is_active();
                 let result = self.driver.update(FrameInput {
                     action_frame: &af,
                     camera: &camera,
@@ -309,11 +296,20 @@ impl eframe::App for App {
                 }
 
                 // Assemble the frame every tick (this rebuilds the scene sub-frame
-                // and clears the overlay list). Orbit only when a handle is not
-                // grabbed; while grabbing, assemble without moving the camera.
+                // and clears the overlay list). The gizmo and the camera share one
+                // resolver, so the camera is skipped while the gizmo wants the
+                // pointer, and for the rest of any press the gizmo took (a handle
+                // grab, or the click that confirms a keyboard session), which the
+                // resolver has armed for a drag as well.
                 let grabbing =
                     self.driver.is_active() || self.driver.hovered_axis() != GizmoAxis::None;
-                if grabbing {
+                if af.pointer.pressed && (tool_was_busy || grabbing) {
+                    self.tool_press = true;
+                }
+                if !self.session.is_gesture_active() {
+                    self.tool_press = false;
+                }
+                if grabbing || self.tool_press {
                     self.session.frame(vp_ctx);
                 } else {
                     self.session

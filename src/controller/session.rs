@@ -218,7 +218,7 @@ pub(crate) fn update_constraint(
 
 /// Update numeric buffering for the session.
 ///
-/// Reads `frame.typed_chars` (digits, `.`, `-`) and `Action::NumericBackspace` /
+/// Reads `frame.text` (digits, `.`, `-`) and `Action::NumericBackspace` /
 /// `Action::NumericNextAxis` to maintain per-axis string buffers. The first digit
 /// typed automatically initialises the numeric state.
 pub(crate) fn update_numeric_state(session: &mut ManipulationSession, frame: &ActionFrame) {
@@ -226,7 +226,7 @@ pub(crate) fn update_numeric_state(session: &mut ManipulationSession, frame: &Ac
     // Other characters are ignored, so one that slips through an unfiltered
     // resolver does not freeze the drag with an empty buffer.
     let numeric_char = |c: &char| c.is_ascii_digit() || *c == '.' || *c == '-';
-    if session.numeric.is_none() && frame.typed_chars.iter().any(numeric_char) {
+    if session.numeric.is_none() && frame.text.iter().any(numeric_char) {
         session.numeric = Some(NumericInputState::new(session.axis, session.exclude_axis));
     }
 
@@ -236,7 +236,7 @@ pub(crate) fn update_numeric_state(session: &mut ManipulationSession, frame: &Ac
     let axis_idx = numeric.current_axis();
 
     // Append typed characters to the current axis buffer.
-    for &c in &frame.typed_chars {
+    for &c in &frame.text {
         let buf = &mut numeric.axis_inputs[axis_idx];
         // Allow '-' only as the first character.
         if c == '-' && buf.is_empty() {
