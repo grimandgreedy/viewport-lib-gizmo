@@ -78,9 +78,8 @@ fn a_full_turn_of_the_z_ring_comes_back_to_identity() {
 
 #[test]
 fn rotation_snapping_steps_the_total_angle() {
-    let mut snap = SnapConfig::default();
-    snap.rotation = Some(15f32.to_radians());
-    let mut driver = GizmoDriver::new().with_snap(snap);
+    let mut driver =
+        GizmoDriver::new().with_snap(SnapConfig::new().with_rotation(15f32.to_radians()));
     driver.set_mode(GizmoMode::Rotate);
     let mut rig = Rig::with_driver(driver, top(), Vec3::ZERO);
     let d = update(sweep_z_ring(&mut rig, 45.0, 82.0));
@@ -186,9 +185,7 @@ fn scale_mode_does_not_pick_the_plane_handles_it_does_not_draw() {
 
 #[test]
 fn scale_snapping_steps_the_total_factor() {
-    let mut snap = SnapConfig::default();
-    snap.scale = Some(0.25);
-    let mut driver = GizmoDriver::new().with_snap(snap);
+    let mut driver = GizmoDriver::new().with_snap(SnapConfig::new().with_scale(0.25));
     driver.set_mode(GizmoMode::Scale);
     let mut rig = Rig::with_driver(driver, three_quarter(), Vec3::ZERO);
     let tip = rig.px(Vec3::X * rig.scale() * 0.9);

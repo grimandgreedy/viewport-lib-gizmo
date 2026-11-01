@@ -388,6 +388,11 @@ impl CustomWidget for GizmoTool {
             GizmoAxis::None
         };
 
+        let space_orientation = match driver.space() {
+            GizmoSpace::Local => frame.selection_orientation,
+            _ => glam::Quat::IDENTITY,
+        };
+
         let mut shapes = Vec::new();
         let mut polylines = Vec::new();
         build_gizmo_overlays(
@@ -399,7 +404,7 @@ impl CustomWidget for GizmoTool {
             centre,
             scale,
             highlight,
-            frame.space_orientation,
+            space_orientation,
             &mut shapes,
             &mut polylines,
         );
@@ -458,6 +463,7 @@ impl CustomWidget for GizmoTool {
             cursor_viewport,
             pointer_delta,
             selection_center: frame.selection_centre,
+            selection_orientation: frame.selection_orientation,
             drag_started: ours && input.buttons.primary_pressed,
             dragging: ours && input.buttons.primary_down,
             clicked: ours && input.buttons.primary_released,

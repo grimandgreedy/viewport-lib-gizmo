@@ -261,3 +261,66 @@ fn an_empty_frame_mid_session_changes_nothing() {
     ));
     assert_eq!(a, b);
 }
+
+#[test]
+fn erasing_every_typed_character_hands_the_drag_back_to_the_cursor() {
+    let mut rig = moving();
+    rig.keys(&[Action::ConstrainX]);
+    rig.type_chars("5");
+    rig.keys(&[Action::NumericBackspace]);
+    assert_eq!(rig.driver.numeric_display(), None);
+    let d = update(rig.hover(rig.cursor.unwrap() + Vec2::new(80.0, 0.0)));
+    assert_eq!(d.position_override, [None; 3]);
+    assert!(
+        d.translation.x.abs() > 0.0,
+        "the cursor moves it again: {d:?}"
+    );
+}
+
+#[test]
+fn a_keyboard_session_gives_the_mode_back_when_it_ends() {
+    let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
+    rig.hover(rig.centre_px() + Vec2::new(200.0, 0.0));
+    for end in [Action::Confirm, Action::Cancel] {
+        rig.keys(&[Action::BeginScale]);
+        assert_eq!(rig.driver.mode(), GizmoMode::Scale);
+        rig.keys(&[end]);
+        assert_eq!(rig.driver.mode(), GizmoMode::Translate, "after {end:?}");
+    }
+}
+
+#[test]
+fn removing_the_selection_cancels_a_keyboard_session() {
+    let mut rig = moving();
+    rig.centre = None;
+    assert_eq!(rig.idle(), ManipResult::Cancel);
+    assert!(!rig.driver.is_active());
+}
+
+#[test]
+fn a_free_r_turns_with_the_cursor_sweep_about_the_view_axis() {
+    let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
+    let c = rig.centre_px();
+    // Counter-clockwise on screen (y runs down).
+    let at = |deg: f32| {
+        let a = deg.to_radians();
+        c + Vec2::new(a.cos(), -a.sin()) * 150.0
+    };
+    rig.hover(at(0.0));
+    rig.keys(&[Action::BeginRotate]);
+    let mut last = ManipResult::None;
+    for deg in (5..=60).step_by(5) {
+        last = rig.hover(at(deg as f32));
+    }
+    let toward_camera = -rig.camera.forward();
+    let (axis, angle) = update(last).rotation.to_axis_angle();
+    assert!(
+        axis.cross(toward_camera).length() < 1e-3,
+        "about the view axis: {axis:?}"
+    );
+    let signed = angle.to_degrees() * axis.dot(toward_camera).signum();
+    assert!(
+        (signed - 60.0).abs() < 0.5,
+        "a 60 degree sweep turns +60 seen from the camera, got {signed}"
+    );
+}

@@ -14,7 +14,7 @@
 //! Resolving raw events into the [`ActionFrame`] is a separate job: use
 //! `viewport-lib-input` or your own resolver, then pass the frame in here.
 
-use glam::{Vec2, Vec3};
+use glam::{Quat, Vec2, Vec3};
 use viewport_lib_types::camera::Camera;
 use viewport_lib_types::input::ActionFrame;
 
@@ -47,8 +47,13 @@ pub struct FrameInput<'a> {
     pub cursor_viewport: Option<Vec2>,
     /// Pointer movement since the last frame, in pixels.
     pub pointer_delta: Vec2,
-    /// World-space centre of the selection. `None` hides the gizmo.
+    /// World-space centre of the selection. `None` hides the gizmo, and ends a
+    /// session in progress with [`ManipResult::Cancel`].
     pub selection_center: Option<Vec3>,
+    /// The selection's orientation (for one object, its rotation). In local
+    /// space the handles are drawn, picked and dragged along its axes; world
+    /// space ignores it. Pass `Quat::IDENTITY` if you only use world space.
+    pub selection_orientation: Quat,
     /// True on the frame a drag begins.
     pub drag_started: bool,
     /// True while a drag is held.
@@ -63,7 +68,11 @@ pub struct GizmoDriver {
     gizmo: Gizmo,
     gizmo_center: Option<Vec3>,
     gizmo_scale: f32,
+    selection_orientation: Quat,
     value_mode: ValueMode,
+    /// The mode set before a keyboard session switched the handles to its own
+    /// kind, put back when the session ends.
+    mode_before_session: Option<GizmoMode>,
 }
 
 impl Default for GizmoDriver {
@@ -80,7 +89,9 @@ impl GizmoDriver {
             gizmo: Gizmo::new(),
             gizmo_center: None,
             gizmo_scale: 1.0,
+            selection_orientation: Quat::IDENTITY,
             value_mode: ValueMode::Relative,
+            mode_before_session: None,
         }
     }
 
@@ -113,7 +124,9 @@ impl GizmoDriver {
         self
     }
 
-    /// The current gizmo mode (translate / rotate / scale).
+    /// The current gizmo mode (translate / rotate / scale). While a G / R / S
+    /// session runs this is the session's kind; the mode set before it comes
+    /// back when the session ends.
     pub fn mode(&self) -> GizmoMode {
         self.gizmo.mode
     }
@@ -141,9 +154,19 @@ impl GizmoDriver {
         self.gizmo.space
     }
 
-    /// Set the gizmo space.
+    /// Set the gizmo space. A session in progress keeps the axes it began
+    /// with.
     pub fn set_space(&mut self, space: GizmoSpace) {
         self.gizmo.space = space;
+    }
+
+    /// The orientation the handles are drawn and picked in: identity in world
+    /// space, the last [`FrameInput::selection_orientation`] in local space.
+    pub fn space_orientation(&self) -> Quat {
+        match self.gizmo.space {
+            GizmoSpace::Local => self.selection_orientation,
+            _ => Quat::IDENTITY,
+        }
     }
 
     /// True while a G/R/S session or a gizmo drag is in progress.
@@ -212,12 +235,13 @@ impl GizmoDriver {
         })
     }
 
-    /// A [`GizmoInfo`] snapshot of the current centre, scale, and mode.
+    /// A [`GizmoInfo`] snapshot of the current centre, scale, orientation (see
+    /// [`space_orientation`](Self::space_orientation)), and mode.
     pub fn gizmo_info(&self) -> Option<GizmoInfo> {
         self.gizmo_center.map(|center| GizmoInfo {
             center,
             scale: self.gizmo_scale,
-            orientation: glam::Quat::IDENTITY,
+            orientation: self.space_orientation(),
             mode: self.gizmo.mode,
         })
     }
@@ -270,7 +294,7 @@ impl GizmoDriver {
             centre,
             scale,
             self.highlight(driving_view),
-            glam::Quat::IDENTITY,
+            self.space_orientation(),
             shapes,
             polylines,
         );
@@ -282,6 +306,7 @@ impl GizmoDriver {
     /// own objects.
     pub fn update(&mut self, input: FrameInput) -> ManipResult {
         self.gizmo_center = input.selection_center;
+        self.selection_orientation = input.selection_orientation;
 
         if let Some(center) = self.gizmo_center {
             self.gizmo_scale =
@@ -299,7 +324,7 @@ impl GizmoDriver {
                     ray_dir,
                     center,
                     self.gizmo_scale,
-                    glam::Quat::IDENTITY,
+                    self.selection_orientation,
                 );
             } else {
                 self.gizmo.hovered_axis = GizmoAxis::None;
@@ -321,13 +346,18 @@ impl GizmoDriver {
         let result = self.controller.update(input.action_frame, ctx);
 
         // While a session is active, draw the handles for what is being done: a
-        // keyboard G/R/S session (or a gizmo drag) sets the mode the overlay uses.
+        // keyboard G/R/S session sets the mode the overlay uses, and the mode set
+        // before it comes back once the session ends.
         if let Some(state) = self.controller.state() {
-            self.gizmo.mode = match state.kind {
+            let kind_mode = match state.kind {
                 ManipulationKind::Move => GizmoMode::Translate,
                 ManipulationKind::Rotate => GizmoMode::Rotate,
                 ManipulationKind::Scale => GizmoMode::Scale,
             };
+            self.mode_before_session.get_or_insert(self.gizmo.mode);
+            self.gizmo.mode = kind_mode;
+        } else if let Some(mode) = self.mode_before_session.take() {
+            self.gizmo.mode = mode;
         }
 
         result
@@ -382,6 +412,7 @@ mod tests {
             cursor_viewport: cursor,
             pointer_delta: Vec2::ZERO,
             selection_center: center,
+            selection_orientation: Quat::IDENTITY,
             drag_started: false,
             dragging: false,
             clicked: false,

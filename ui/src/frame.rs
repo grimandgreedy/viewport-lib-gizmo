@@ -26,9 +26,9 @@ pub struct GizmoFrame {
     pub camera: Camera,
     /// The world-space gizmo centre, or `None` to hide the gizmo.
     pub selection_centre: Option<Vec3>,
-    /// The orientation the handles are drawn and picked in: identity for world space, the
-    /// object's orientation for local space.
-    pub space_orientation: Quat,
+    /// The selection's orientation (for one object, its rotation). In local space the handles
+    /// are drawn, picked and dragged along its axes; world space ignores it.
+    pub selection_orientation: Quat,
     /// The host's resolved input for the frame: the keyboard G / R / S, confirm and cancel, axis
     /// constraints and numeric entry the controller acts on. Only the update frame needs it.
     pub action_frame: ActionFrame,
@@ -49,9 +49,9 @@ impl GizmoFrame {
         self
     }
 
-    /// The same, with the handles drawn in `orientation`.
-    pub fn with_space_orientation(mut self, orientation: Quat) -> Self {
-        self.space_orientation = orientation;
+    /// The same, with the selection turned to `orientation`.
+    pub fn with_selection_orientation(mut self, orientation: Quat) -> Self {
+        self.selection_orientation = orientation;
         self
     }
 

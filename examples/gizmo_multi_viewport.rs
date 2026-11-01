@@ -334,6 +334,7 @@ fn main() {
                     },
                     pointer_delta: pointer.delta,
                     selection_center: Some(centre),
+                    selection_orientation: glam::Quat::IDENTITY,
                     drag_started: pointer.pressed,
                     dragging: pointer.dragging,
                     clicked: pointer.clicked,

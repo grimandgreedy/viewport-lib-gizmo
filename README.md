@@ -49,6 +49,7 @@ let result = driver.update(FrameInput {
     cursor_viewport: pointer.cursor,
     pointer_delta: pointer.delta,
     selection_center: Some(centre),
+    selection_orientation: rotation, // used in local space; Quat::IDENTITY if world only
     drag_started: pointer.drag_started,
     dragging: pointer.dragging,
     clicked: pointer.clicked,
@@ -67,12 +68,12 @@ if let Some(centre) = driver.gizmo_center() {
         &style,
         driver.mode(),
         camera.proj_matrix() * camera.view_matrix(),
-        (camera.center - camera.eye_position()).normalize_or(glam::Vec3::NEG_Z),
+        camera.forward(),
         [viewport_size.x, viewport_size.y],
         centre,
         driver.gizmo_scale(),
         driver.hovered_axis(),
-        glam::Quat::IDENTITY,
+        driver.space_orientation(),
         &mut overlays.shapes,
         &mut overlays.polylines,
     );
@@ -87,6 +88,18 @@ While a handle is hovered or a session is running (`driver.hovered_axis()` is
 not `GizmoAxis::None`, or `driver.is_active()`), hold back the camera's left-drag
 so orbit and the gizmo do not both act on the same drag.
 
+### Local space
+
+`driver.set_space(GizmoSpace::Local)` lines the handles up with the selection's
+own axes, from the `selection_orientation` passed in each frame. The handles are
+drawn, picked and dragged along those axes, and the X / Y / Z constraint keys
+use them too. A session keeps the axes it started with.
+`driver.space_orientation()` is the orientation to hand to
+`build_gizmo_overlays`: identity in world space.
+
+G, R and S switch the handles to the session's kind while it runs; the mode set
+before comes back when it ends.
+
 ### Value mode
 
 `ValueMode` is `Relative` (typed values are offsets from the start pose) or
@@ -97,9 +110,9 @@ in `TransformDelta`.
 ### Snapping
 
 ```rust,ignore
-let mut snap = SnapConfig::default();
-snap.translation = Some(0.25);
-snap.rotation = Some(std::f32::consts::PI / 12.0);
+let snap = SnapConfig::new()
+    .with_translation(0.25)
+    .with_rotation(std::f32::consts::PI / 12.0);
 let driver = GizmoDriver::new().with_snap(snap);
 ```
 

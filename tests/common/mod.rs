@@ -3,7 +3,7 @@
 
 #![allow(dead_code)]
 
-use glam::{DVec3, Vec2, Vec3};
+use glam::{DVec3, Quat, Vec2, Vec3};
 use viewport_lib_gizmo::{FrameInput, GizmoDriver, ManipResult, TransformDelta};
 use viewport_lib_types::camera::Camera;
 use viewport_lib_types::input::{Action, ActionFrame, ResolvedActionState};
@@ -72,6 +72,7 @@ pub struct Rig {
     pub driver: GizmoDriver,
     pub camera: Camera,
     pub centre: Option<Vec3>,
+    pub orientation: Quat,
     pub cursor: Option<Vec2>,
     pub button_down: bool,
 }
@@ -87,6 +88,7 @@ impl Rig {
             driver,
             camera,
             centre: Some(centre),
+            orientation: Quat::IDENTITY,
             cursor: None,
             button_down: false,
         };
@@ -129,6 +131,7 @@ impl Rig {
             cursor_viewport: cursor,
             pointer_delta,
             selection_center: self.centre,
+            selection_orientation: self.orientation,
             drag_started,
             dragging: self.button_down,
             clicked,

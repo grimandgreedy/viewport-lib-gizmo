@@ -259,9 +259,7 @@ fn a_drag_needs_a_selection() {
 
 #[test]
 fn snapping_rounds_the_total_translation() {
-    let mut snap = SnapConfig::default();
-    snap.translation = Some(0.5);
-    let driver = GizmoDriver::new().with_snap(snap);
+    let driver = GizmoDriver::new().with_snap(SnapConfig::new().with_translation(0.5));
     let mut rig = Rig::with_driver(driver, three_quarter(), Vec3::ZERO);
     let grab = x_arm(&rig);
     rig.press(rig.px(grab));
@@ -278,15 +276,16 @@ fn snapping_rounds_the_total_translation() {
 }
 
 #[test]
-fn removing_the_selection_mid_drag_does_not_panic_and_release_commits() {
+fn removing_the_selection_mid_drag_cancels_it() {
     let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
     let grab = rig.px(x_arm(&rig));
     rig.press(grab);
     rig.drag_to(grab + Vec2::new(30.0, 0.0));
     rig.centre = None;
-    let r = rig.drag_to(grab + Vec2::new(60.0, 0.0));
-    if let ManipResult::Update(d) = r {
-        assert!(is_finite(&d));
-    }
-    assert_eq!(rig.release(), ManipResult::Commit);
+    assert_eq!(
+        rig.drag_to(grab + Vec2::new(60.0, 0.0)),
+        ManipResult::Cancel
+    );
+    assert!(!rig.driver.is_active());
+    assert_eq!(rig.release(), ManipResult::None);
 }

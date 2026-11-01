@@ -81,7 +81,8 @@ impl ManipulationController {
     ///
     /// Priority order:
     /// 1. Confirm (Enter, or left-click while not a gizmo drag) -> [`ManipResult::Commit`]
-    /// 2. Cancel (Escape) -> [`ManipResult::Cancel`]
+    /// 2. Cancel (Escape, or the selection going away: `selection_center` is
+    ///    `None`) -> [`ManipResult::Cancel`]
     /// 3. Gizmo drag release -> [`ManipResult::Commit`]
     /// 4. Update constraints and numeric input
     /// 5. Compute and return [`ManipResult::Update`]
@@ -98,8 +99,8 @@ impl ManipulationController {
                 return ManipResult::Commit;
             }
 
-            // 2. Cancel: Escape key.
-            if frame.is_active(Action::Cancel) {
+            // 2. Cancel: Escape key, or nothing left to manipulate.
+            if frame.is_active(Action::Cancel) || ctx.selection_center.is_none() {
                 self.session = None;
                 return ManipResult::Cancel;
             }
@@ -192,6 +193,7 @@ impl ManipulationController {
                                 cursor,
                                 session.axis,
                                 session.exclude_axis,
+                                session.orientation,
                                 session.gizmo_center,
                                 &ctx.camera,
                                 ctx.viewport_size,
@@ -202,10 +204,11 @@ impl ManipulationController {
                     match exact {
                         Some(total) => session.cumulative_translation = total,
                         None => {
-                            session.cumulative_translation += solvers::constrained_translation(
+                            session.cumulative_translation += solvers::oriented_translation(
                                 pointer_delta,
                                 session.axis,
                                 session.exclude_axis,
+                                session.orientation,
                                 session.gizmo_center,
                                 &ctx.camera,
                                 ctx.viewport_size,
@@ -234,6 +237,7 @@ impl ManipulationController {
                             // frames, so accumulate the per-frame rotation into a
                             // running total quaternion.
                             let (ax1, ax2) = solvers::excluded_axes(ax);
+                            let (ax1, ax2) = (session.orientation * ax1, session.orientation * ax2);
                             let a1 = solvers::drag_onto_rotation(pointer_delta, ax1, camera_view);
                             let a2 = solvers::drag_onto_rotation(pointer_delta, ax2, camera_view);
                             let (chosen_axis, drag_angle) = if a1.abs() >= a2.abs() {
@@ -247,7 +251,7 @@ impl ManipulationController {
                             session.cumulative_rotation
                         } else {
                             // Constrained to a single axis: angular sweep around screen center.
-                            let axis_world = solvers::gizmo_axis_to_vec3(ax);
+                            let axis_world = session.orientation * solvers::gizmo_axis_to_vec3(ax);
                             let angle = solvers::angular_rotation_from_cursor(
                                 ctx.cursor_viewport,
                                 pointer_delta,
@@ -268,11 +272,26 @@ impl ManipulationController {
                             glam::Quat::from_axis_angle(axis_world, total)
                         }
                     } else {
-                        // Unconstrained: rotate around the camera view direction,
-                        // accumulating the per-frame rotation into a running total.
-                        let view_dir = ctx.camera.forward();
-                        let frame_rot =
-                            glam::Quat::from_axis_angle(view_dir, pointer_delta.x * 0.01 + twist);
+                        // Unconstrained: rotate about the view axis, accumulating the
+                        // per-frame rotation into a running total (the camera, and so
+                        // the axis, can change between frames). With the cursor in
+                        // view the object turns with the cursor's sweep around the
+                        // pivot, the same as a single-axis rotation; without one,
+                        // horizontal pointer motion turns it.
+                        let toward_camera = -ctx.camera.forward();
+                        let angle = match ctx.cursor_viewport {
+                            Some(_) => solvers::angular_rotation_from_cursor(
+                                ctx.cursor_viewport,
+                                pointer_delta,
+                                session.gizmo_center,
+                                toward_camera,
+                                view_proj,
+                                ctx.viewport_size,
+                                camera_view,
+                            ),
+                            None => -pointer_delta.x * 0.01,
+                        };
+                        let frame_rot = glam::Quat::from_axis_angle(toward_camera, angle + twist);
                         session.cumulative_rotation = frame_rot * session.cumulative_rotation;
                         session.cumulative_rotation
                     };
@@ -353,9 +372,11 @@ impl ManipulationController {
                 let (ray_origin, ray_dir) =
                     crate::maths::gizmo::cursor_ray(&ctx.camera, cursor, ctx.viewport_size);
 
+                // `GizmoInfo::orientation` is already resolved for the space
+                // (identity in world space), so pick in it as given.
                 let temp_gizmo = Gizmo {
                     mode: gizmo_info.mode,
-                    space: GizmoSpace::World,
+                    space: GizmoSpace::Local,
                     hovered_axis: GizmoAxis::None,
                     active_axis: GizmoAxis::None,
                     drag_start_mouse: None,
@@ -383,6 +404,7 @@ impl ManipulationController {
                         numeric: None,
                         is_gizmo_drag: true,
                         gizmo_center: center,
+                        orientation: gizmo_info.orientation,
                         cursor_anchor: ctx.cursor_viewport,
                         cursor_last_total: glam::Vec2::ZERO,
                         cumulative_scale: 1.0,
@@ -413,6 +435,8 @@ impl ManipulationController {
                     numeric: None,
                     is_gizmo_drag: false,
                     gizmo_center: center,
+                    // Constraint keys work in the gizmo's space.
+                    orientation: ctx.gizmo.map_or(glam::Quat::IDENTITY, |g| g.orientation),
                     cursor_anchor: ctx.cursor_viewport,
                     cursor_last_total: glam::Vec2::ZERO,
                     cumulative_scale: 1.0,
@@ -517,13 +541,15 @@ mod tests {
         viewport_lib_types::camera::Camera::default()
     }
 
+    /// A frame with no pointer input and a selection at the origin. A session
+    /// cancels without a selection, so tests that drive one need it.
     fn idle_ctx() -> ManipulationContext {
         ManipulationContext {
             camera: make_camera(),
             viewport_size: glam::Vec2::new(800.0, 600.0),
             cursor_viewport: None,
             pointer_delta: glam::Vec2::ZERO,
-            selection_center: None,
+            selection_center: Some(glam::Vec3::ZERO),
             gizmo: None,
             drag_started: false,
             dragging: false,
@@ -745,7 +771,9 @@ mod tests {
             viewport_lib_types::input::Action::BeginMove,
             viewport_lib_types::input::ResolvedActionState::Pressed,
         );
-        let result = ctrl.update(&frame, idle_ctx());
+        let mut ctx = idle_ctx();
+        ctx.selection_center = None;
+        let result = ctrl.update(&frame, ctx);
         assert_eq!(result, ManipResult::None);
         assert!(!ctrl.is_active());
     }

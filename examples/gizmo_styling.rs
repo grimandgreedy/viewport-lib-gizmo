@@ -262,6 +262,7 @@ impl eframe::App for App {
                     cursor_viewport: af.pointer.cursor,
                     pointer_delta: af.pointer.delta,
                     selection_center: Some(center),
+                    selection_orientation: glam::Quat::IDENTITY,
                     drag_started: af.pointer.pressed,
                     dragging: af.pointer.dragging,
                     clicked: af.pointer.clicked,

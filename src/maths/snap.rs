@@ -15,6 +15,31 @@ pub struct SnapConfig {
     pub scale: Option<f32>,
 }
 
+impl SnapConfig {
+    /// No snapping on any channel.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Snap translation to `increment` world units.
+    pub fn with_translation(mut self, increment: f32) -> Self {
+        self.translation = Some(increment);
+        self
+    }
+
+    /// Snap rotation to `increment` radians (e.g. `PI / 12` for 15 deg).
+    pub fn with_rotation(mut self, increment: f32) -> Self {
+        self.rotation = Some(increment);
+        self
+    }
+
+    /// Snap scale to steps of `increment` (e.g. 0.1 for 10% steps).
+    pub fn with_scale(mut self, increment: f32) -> Self {
+        self.scale = Some(increment);
+        self
+    }
+}
+
 /// Snap a scalar value to the nearest increment.
 ///
 /// Returns `value` unchanged if `increment <= 0`.

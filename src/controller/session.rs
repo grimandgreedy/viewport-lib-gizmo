@@ -106,6 +106,10 @@ pub(crate) struct ManipulationSession {
     pub(crate) is_gizmo_drag: bool,
     /// World-space center captured when the session began.
     pub(crate) gizmo_center: glam::Vec3,
+    /// The orientation the constraint axes are turned by: identity in world
+    /// space, the object's orientation in local space. Captured when the
+    /// session began.
+    pub(crate) orientation: glam::Quat,
     /// Viewport-local cursor position when the session started or the constraint last changed.
     ///
     /// Used to compute true per-frame increments from the absolute cursor position,
@@ -143,6 +147,7 @@ impl Default for ManipulationSession {
             numeric: None,
             is_gizmo_drag: false,
             gizmo_center: glam::Vec3::ZERO,
+            orientation: glam::Quat::IDENTITY,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
             cumulative_scale: 1.0,
@@ -244,9 +249,14 @@ pub(crate) fn update_numeric_state(session: &mut ManipulationSession, frame: &Ac
         }
     }
 
-    // Backspace: pop the last character.
+    // Backspace: pop the last character. Erasing the last one anywhere hands the
+    // drag back to the pointer.
     if frame.is_active(Action::NumericBackspace) {
         numeric.axis_inputs[axis_idx].pop();
+        if numeric.axis_inputs.iter().all(String::is_empty) {
+            session.numeric = None;
+            return;
+        }
     }
 
     // Tab: advance to the next active axis.
@@ -355,6 +365,7 @@ mod tests {
             numeric: None,
             is_gizmo_drag: false,
             gizmo_center: glam::Vec3::ZERO,
+            orientation: glam::Quat::IDENTITY,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
             cumulative_scale: 1.0,
@@ -374,6 +385,7 @@ mod tests {
             numeric: None,
             is_gizmo_drag: false,
             gizmo_center: glam::Vec3::ZERO,
+            orientation: glam::Quat::IDENTITY,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
             cumulative_scale: 1.0,
@@ -393,6 +405,7 @@ mod tests {
             numeric: Some(NumericInputState::new(Some(GizmoAxis::X), false)),
             is_gizmo_drag: false,
             gizmo_center: glam::Vec3::ZERO,
+            orientation: glam::Quat::IDENTITY,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
             cumulative_scale: 1.0,

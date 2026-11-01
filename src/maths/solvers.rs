@@ -87,43 +87,68 @@ pub fn constrained_translation(
     camera: &Camera,
     viewport_size: glam::Vec2,
 ) -> glam::Vec3 {
-    let pan_scale = camera.view_height_at(camera.focus_distance()) / viewport_size.y.max(1.0);
-    let camera_right = camera.right();
-    let camera_up = camera.up();
+    oriented_translation(
+        pointer_delta,
+        axis,
+        exclude_axis,
+        glam::Quat::IDENTITY,
+        gizmo_center,
+        camera,
+        viewport_size,
+    )
+}
 
-    let camera_view = camera.view_matrix();
-    let view_proj = camera.proj_matrix() * camera_view;
+/// [`constrained_translation`] with the axes turned by `orientation`, for a
+/// local-space gizmo. With the identity it is that function exactly.
+pub(crate) fn oriented_translation(
+    pointer_delta: glam::Vec2,
+    axis: Option<GizmoAxis>,
+    exclude_axis: bool,
+    orientation: glam::Quat,
+    gizmo_center: glam::Vec3,
+    camera: &Camera,
+    viewport_size: glam::Vec2,
+) -> glam::Vec3 {
+    let pan_scale = camera.view_height_at(camera.focus_distance()) / viewport_size.y.max(1.0);
+    let camera_plane =
+        camera.right() * pointer_delta.x * pan_scale - camera.up() * pointer_delta.y * pan_scale;
 
     match axis {
-        None => {
-            // Free: move in the camera plane.
-            camera_right * pointer_delta.x * pan_scale - camera_up * pointer_delta.y * pan_scale
+        // Free: move in the camera plane.
+        None => camera_plane,
+        // Move in the camera plane, then drop the part along the excluded axis.
+        Some(ax) if exclude_axis => {
+            let normal = orientation * gizmo_axis_to_vec3(ax);
+            without_component(camera_plane, normal)
         }
+        // Constrained to a single axis.
         Some(ax) => {
-            if exclude_axis {
-                // Move in camera plane, then zero the excluded axis component.
-                let mut world_delta = camera_right * pointer_delta.x * pan_scale
-                    - camera_up * pointer_delta.y * pan_scale;
-                match ax {
-                    GizmoAxis::X => world_delta.x = 0.0,
-                    GizmoAxis::Y => world_delta.y = 0.0,
-                    GizmoAxis::Z | GizmoAxis::None => world_delta.z = 0.0,
-                    _ => world_delta.z = 0.0,
-                }
-                world_delta
-            } else {
-                // Constrained to a single axis.
-                let axis_world = gizmo_axis_to_vec3(ax);
-                let amount = project_drag_onto_axis(
-                    pointer_delta,
-                    axis_world,
-                    view_proj,
-                    gizmo_center,
-                    viewport_size,
-                );
-                axis_world * amount
-            }
+            let axis_world = orientation * gizmo_axis_to_vec3(ax);
+            let view_proj = camera.proj_matrix() * camera.view_matrix();
+            let amount = project_drag_onto_axis(
+                pointer_delta,
+                axis_world,
+                view_proj,
+                gizmo_center,
+                viewport_size,
+            );
+            axis_world * amount
         }
+    }
+}
+
+/// `v` with its component along the unit vector `normal` removed. Along a
+/// world axis the component is zeroed outright, so a plane drag in world space
+/// stays exactly in its plane.
+fn without_component(v: glam::Vec3, normal: glam::Vec3) -> glam::Vec3 {
+    if normal == glam::Vec3::X {
+        glam::Vec3::new(0.0, v.y, v.z)
+    } else if normal == glam::Vec3::Y {
+        glam::Vec3::new(v.x, 0.0, v.z)
+    } else if normal == glam::Vec3::Z {
+        glam::Vec3::new(v.x, v.y, 0.0)
+    } else {
+        v - normal * v.dot(normal)
     }
 }
 
@@ -131,20 +156,23 @@ pub fn constrained_translation(
 /// moves from `from` to `to` (viewport pixels). With `from` the cursor at the
 /// start of the drag, this is the drag's total translation.
 ///
-/// The point is held to the same constraint as [`constrained_translation`]: the
-/// axis line through `gizmo_center`, the plane through it whose normal is the
-/// excluded axis, or (with no axis) the camera-facing plane through it. Where
+/// The point is held to the same constraint as [`constrained_translation`], with
+/// the axes turned by `orientation`: the axis line through `gizmo_center`, the
+/// plane through it whose normal is the excluded axis, or (with no axis) the
+/// camera-facing plane through it. Where
 /// that solver scales a pointer delta, this one intersects the two cursor rays
 /// with the line or plane, so the point tracks the cursor exactly in perspective
 /// and at any depth.
 ///
 /// Returns `None` when either ray meets the line or plane behind the eye, or
 /// runs too close to parallel with it to give a stable answer.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn cursor_translation(
     from: glam::Vec2,
     to: glam::Vec2,
     axis: Option<GizmoAxis>,
     exclude_axis: bool,
+    orientation: glam::Quat,
     gizmo_center: glam::Vec3,
     camera: &Camera,
     viewport_size: glam::Vec2,
@@ -153,29 +181,24 @@ pub(crate) fn cursor_translation(
     let (o1, d1) = crate::maths::gizmo::cursor_ray(camera, to, viewport_size);
     match axis {
         Some(ax) if !exclude_axis => {
-            let a = gizmo_axis_to_vec3(ax);
+            let a = orientation * gizmo_axis_to_vec3(ax);
             let s0 = ray_line_param(o0, d0, gizmo_center, a)?;
             let s1 = ray_line_param(o1, d1, gizmo_center, a)?;
             Some(a * (s1 - s0))
         }
         _ => {
             let normal = match axis {
-                Some(ax) => gizmo_axis_to_vec3(ax),
+                Some(ax) => orientation * gizmo_axis_to_vec3(ax),
                 None => camera.forward(),
             };
             let p0 = ray_plane_hit(o0, d0, gizmo_center, normal)?;
             let p1 = ray_plane_hit(o1, d1, gizmo_center, normal)?;
-            let mut delta = p1 - p0;
-            // Drop the rounding left along the normal, so a plane drag stays
-            // exactly in its plane.
-            if let Some(ax) = axis {
-                match ax {
-                    GizmoAxis::X => delta.x = 0.0,
-                    GizmoAxis::Y => delta.y = 0.0,
-                    _ => delta.z = 0.0,
-                }
-            }
-            Some(delta)
+            // Drop the rounding left along the normal, so a plane drag stays in
+            // its plane.
+            Some(match axis {
+                Some(_) => without_component(p1 - p0, normal),
+                None => p1 - p0,
+            })
         }
     }
 }
@@ -630,7 +653,16 @@ mod tests {
             (Some(GizmoAxis::X), false),
             (Some(GizmoAxis::Z), true),
         ] {
-            let t = cursor_translation(at, at, axis, exclude, glam::Vec3::ZERO, &camera, vp);
+            let t = cursor_translation(
+                at,
+                at,
+                axis,
+                exclude,
+                glam::Quat::IDENTITY,
+                glam::Vec3::ZERO,
+                &camera,
+                vp,
+            );
             assert_eq!(t, Some(glam::Vec3::ZERO), "{axis:?} exclude {exclude}");
         }
     }

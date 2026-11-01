@@ -105,6 +105,7 @@ fn a_zero_sized_viewport_does_not_produce_nan() {
         cursor_viewport: cursor,
         pointer_delta: Vec2::new(3.0, 1.0),
         selection_center: Some(Vec3::ZERO),
+        selection_orientation: glam::Quat::IDENTITY,
         drag_started: started,
         dragging,
         clicked: false,
