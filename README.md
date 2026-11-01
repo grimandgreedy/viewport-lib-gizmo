@@ -15,8 +15,9 @@ Use as much of the crate as you need.
 1. **Maths.** Stateless functions over a `Camera`, a cursor, and `glam`:
    `project_drag_onto_axis`, `project_drag_onto_plane`,
    `project_drag_onto_rotation`, `project_drag_onto_screen_plane`,
-   `compute_gizmo_scale`, `gizmo_center_for_pivot`, `cursor_ray`, the `Gizmo`
-   hit-tester, and the `snap_*` helpers. Enough to build a gizmo of your own.
+   `gizmo_scale_for_camera` (and the perspective-only `compute_gizmo_scale`),
+   `gizmo_center_for_pivot`, `cursor_ray`, the `Gizmo` hit-tester, and the
+   `snap_*` helpers. Enough to build a gizmo of your own.
 2. **Style and overlays.** `build_gizmo_overlays` turns gizmo state into overlay
    shapes and polylines in the look set by a `GizmoStyle`. `GizmoStyle::default()`,
    `thin()` and `bold()` are the built-in looks; every colour and dimension is a
@@ -143,7 +144,8 @@ for each view's own camera and height. Only the driving view shows the hovered
 handle; while a session runs, every view shows the axis being changed.
 
 `cursor_ray` handles orthographic cameras, so the handles can be grabbed in
-orthographic top, front and side views as well as in perspective.
+orthographic top, front and side views as well as in perspective, and
+`gizmo_scale_for_camera` keeps the gizmo the same size on screen in both.
 
 ## Examples
 

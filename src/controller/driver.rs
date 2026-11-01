@@ -259,12 +259,7 @@ impl GizmoDriver {
         let Some(centre) = self.gizmo_center else {
             return;
         };
-        let scale = gizmo::compute_gizmo_scale(
-            centre,
-            camera.eye().as_vec3(),
-            camera.fov_y(),
-            viewport_size.y,
-        );
+        let scale = gizmo::gizmo_scale_for_camera(centre, camera, viewport_size.y);
         let forward = camera.forward();
         build_gizmo_overlays(
             style,
@@ -289,12 +284,8 @@ impl GizmoDriver {
         self.gizmo_center = input.selection_center;
 
         if let Some(center) = self.gizmo_center {
-            self.gizmo_scale = gizmo::compute_gizmo_scale(
-                center,
-                input.camera.eye().as_vec3(),
-                input.camera.fov_y(),
-                input.viewport_size.y,
-            );
+            self.gizmo_scale =
+                gizmo::gizmo_scale_for_camera(center, input.camera, input.viewport_size.y);
         }
 
         // Update the hovered axis only when no session is active; during a drag

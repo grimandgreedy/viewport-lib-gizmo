@@ -147,15 +147,29 @@ impl ManipulationController {
             // Falls back to ctx.pointer_delta when cursor_viewport is unavailable.
             let pointer_delta = if session.numeric.is_some() {
                 glam::Vec2::ZERO
-            } else if let (Some(current), Some(anchor)) =
-                (ctx.cursor_viewport, session.cursor_anchor)
-            {
-                let total = current - anchor;
-                let increment = total - session.cursor_last_total;
-                session.cursor_last_total = total;
-                increment
             } else {
-                ctx.pointer_delta
+                match (ctx.cursor_viewport, session.cursor_anchor) {
+                    (Some(current), Some(anchor)) => {
+                        let total = current - anchor;
+                        let increment = total - session.cursor_last_total;
+                        session.cursor_last_total = total;
+                        increment
+                    }
+                    (Some(current), None) => {
+                        // The session began with the cursor outside the viewport:
+                        // anchor where it first appears.
+                        session.cursor_anchor = Some(current);
+                        session.cursor_last_total = glam::Vec2::ZERO;
+                        glam::Vec2::ZERO
+                    }
+                    (None, _) => {
+                        // Outside the viewport. Count the reported delta against
+                        // the anchor too, so the move is not counted again when
+                        // the cursor comes back.
+                        session.cursor_last_total += ctx.pointer_delta;
+                        ctx.pointer_delta
+                    }
+                }
             };
 
             let mut delta = TransformDelta::default();
@@ -165,15 +179,39 @@ impl ManipulationController {
 
             match session.kind {
                 ManipulationKind::Move => {
-                    let frame_translation = solvers::constrained_translation(
-                        pointer_delta,
-                        session.axis,
-                        session.exclude_axis,
-                        session.gizmo_center,
-                        &ctx.camera,
-                        ctx.viewport_size,
-                    );
-                    session.cumulative_translation += frame_translation;
+                    // With the cursor in view, intersect the anchor's and the
+                    // cursor's rays with the constraint: the total is then exact,
+                    // keeps the grabbed point under the cursor, and puts it back
+                    // there after the cursor has been outside the viewport.
+                    // Without a cursor, while typing, or where the rays give no
+                    // stable answer, add the scaled pointer delta instead.
+                    let exact = match (ctx.cursor_viewport, session.cursor_anchor) {
+                        (Some(cursor), Some(anchor)) if session.numeric.is_none() => {
+                            solvers::cursor_translation(
+                                anchor,
+                                cursor,
+                                session.axis,
+                                session.exclude_axis,
+                                session.gizmo_center,
+                                &ctx.camera,
+                                ctx.viewport_size,
+                            )
+                        }
+                        _ => None,
+                    };
+                    match exact {
+                        Some(total) => session.cumulative_translation = total,
+                        None => {
+                            session.cumulative_translation += solvers::constrained_translation(
+                                pointer_delta,
+                                session.axis,
+                                session.exclude_axis,
+                                session.gizmo_center,
+                                &ctx.camera,
+                                ctx.viewport_size,
+                            )
+                        }
+                    }
                     // Emit the total translation since the drag began. Snapping
                     // rounds the cumulative (not a per-frame step) so the object
                     // sits on grid stops without drift.
@@ -256,16 +294,16 @@ impl ManipulationController {
 
                     // Cumulative scale factor = current distance / anchor distance.
                     // Moving toward the centre shrinks; moving away (or passing through
-                    // and out the other side) grows.
+                    // and out the other side) grows. An anchor close to the centre
+                    // (a grab on the centre handle) would make that ratio jump, or
+                    // divide by zero, so the change is measured against at least
+                    // SCALE_MIN_REFERENCE_PX instead.
                     let cumulative = match (ctx.cursor_viewport, session.cursor_anchor) {
                         (Some(cursor), Some(anchor)) => {
                             let dist_anchor = (anchor - center_screen).length();
                             let dist_now = (cursor - center_screen).length();
-                            if dist_anchor > 2.0 {
-                                (dist_now / dist_anchor).max(0.001)
-                            } else {
-                                1.0
-                            }
+                            let reference = dist_anchor.max(SCALE_MIN_REFERENCE_PX);
+                            (1.0 + (dist_now - dist_anchor) / reference).max(0.001)
                         }
                         _ => {
                             // Fallback when cursor is unavailable: integrate pointer_delta.
@@ -438,6 +476,11 @@ impl Default for ManipulationController {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// The smallest cursor-to-pivot distance, in pixels, a scale drag measures its
+/// change against. About half the gizmo's on-screen length, so a drag that
+/// starts on the centre handle doubles the size over that distance.
+const SCALE_MIN_REFERENCE_PX: f32 = 50.0;
 
 /// Normalise a hit gizmo axis into the `(axis, exclude)` constraint the solvers
 /// understand.

@@ -374,8 +374,7 @@ impl CustomWidget for GizmoTool {
         let camera = &frame.camera;
         let view_proj = camera.proj_matrix() * camera.view_matrix();
         let forward = camera.forward();
-        let scale =
-            gizmo::compute_gizmo_scale(centre, camera.eye().as_vec3(), camera.fov_y(), viewport[1]);
+        let scale = gizmo::gizmo_scale_for_camera(centre, camera, viewport[1]);
 
         // A running session lights the axis being changed in every pane. Otherwise a
         // pane lights the handle it last saw hovered, and only while the pointer is

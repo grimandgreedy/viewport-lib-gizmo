@@ -23,10 +23,10 @@
 //! building a custom gizmo without the controller: project a screen drag onto an
 //! axis, plane, or rotation ([`project_drag_onto_axis`], [`project_drag_onto_plane`],
 //! [`project_drag_onto_rotation`], [`project_drag_onto_screen_plane`]), size the
-//! gizmo for the screen ([`compute_gizmo_scale`]), resolve the pivot centre
-//! ([`gizmo_center_for_pivot`], [`PivotMode`]), hit-test the handles ([`Gizmo`]),
-//! turn a cursor into a world ray ([`cursor_ray`]), and snap a value
-//! ([`snap_value`] and friends).
+//! gizmo for the screen ([`gizmo_scale_for_camera`], or [`compute_gizmo_scale`]
+//! for a perspective camera), resolve the pivot centre ([`gizmo_center_for_pivot`],
+//! [`PivotMode`]), hit-test the handles ([`Gizmo`]), turn a cursor into a world
+//! ray ([`cursor_ray`]), and snap a value ([`snap_value`] and friends).
 
 pub mod controller;
 pub mod maths;
@@ -35,8 +35,9 @@ pub mod overlay;
 // Layer 1: the build-your-own-gizmo maths surface.
 pub use maths::gizmo::{
     Gizmo, GizmoAxis, GizmoMode, GizmoSpace, PivotMode, ROTATION_RING_RADIUS, compute_gizmo_scale,
-    cursor_ray, gizmo_center_for_pivot, gizmo_center_from_selection, project_drag_onto_axis,
-    project_drag_onto_plane, project_drag_onto_rotation, project_drag_onto_screen_plane,
+    cursor_ray, gizmo_center_for_pivot, gizmo_center_from_selection, gizmo_scale_for_camera,
+    project_drag_onto_axis, project_drag_onto_plane, project_drag_onto_rotation,
+    project_drag_onto_screen_plane,
 };
 pub use maths::snap::{
     ConstraintOverlay, SnapConfig, snap_angle, snap_scale, snap_value, snap_vec3,

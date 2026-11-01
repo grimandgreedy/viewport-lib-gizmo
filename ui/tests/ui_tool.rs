@@ -389,7 +389,7 @@ fn a_view_picks_through_its_own_camera() {
     // point over the X arm from the default camera is empty space there.
     let tool = tool();
     let mut side = camera();
-    side.set_orbit_center(glam::DVec3::new(3.0, 0.0, 0.0));
+    side.set_orbit_centre(glam::DVec3::new(3.0, 0.0, 0.0));
     let mut h = one_pane(&tool, PANE);
     h.set_context(framed(side, ActionFrame::default()));
     h.feed(Input::at(x_handle()));

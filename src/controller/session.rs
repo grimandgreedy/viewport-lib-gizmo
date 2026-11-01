@@ -217,8 +217,11 @@ pub(crate) fn update_constraint(
 /// `Action::NumericNextAxis` to maintain per-axis string buffers. The first digit
 /// typed automatically initialises the numeric state.
 pub(crate) fn update_numeric_state(session: &mut ManipulationSession, frame: &ActionFrame) {
-    // Bootstrap: create numeric state on the first typed digit.
-    if session.numeric.is_none() && !frame.typed_chars.is_empty() {
+    // Bootstrap: create numeric state on the first typed digit, sign, or point.
+    // Other characters are ignored, so one that slips through an unfiltered
+    // resolver does not freeze the drag with an empty buffer.
+    let numeric_char = |c: &char| c.is_ascii_digit() || *c == '.' || *c == '-';
+    if session.numeric.is_none() && frame.typed_chars.iter().any(numeric_char) {
         session.numeric = Some(NumericInputState::new(session.axis, session.exclude_axis));
     }
 

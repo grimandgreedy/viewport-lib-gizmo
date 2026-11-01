@@ -127,6 +127,96 @@ pub fn constrained_translation(
     }
 }
 
+/// The world translation that keeps the grabbed point under the cursor as it
+/// moves from `from` to `to` (viewport pixels). With `from` the cursor at the
+/// start of the drag, this is the drag's total translation.
+///
+/// The point is held to the same constraint as [`constrained_translation`]: the
+/// axis line through `gizmo_center`, the plane through it whose normal is the
+/// excluded axis, or (with no axis) the camera-facing plane through it. Where
+/// that solver scales a pointer delta, this one intersects the two cursor rays
+/// with the line or plane, so the point tracks the cursor exactly in perspective
+/// and at any depth.
+///
+/// Returns `None` when either ray meets the line or plane behind the eye, or
+/// runs too close to parallel with it to give a stable answer.
+pub(crate) fn cursor_translation(
+    from: glam::Vec2,
+    to: glam::Vec2,
+    axis: Option<GizmoAxis>,
+    exclude_axis: bool,
+    gizmo_center: glam::Vec3,
+    camera: &Camera,
+    viewport_size: glam::Vec2,
+) -> Option<glam::Vec3> {
+    let (o0, d0) = crate::maths::gizmo::cursor_ray(camera, from, viewport_size);
+    let (o1, d1) = crate::maths::gizmo::cursor_ray(camera, to, viewport_size);
+    match axis {
+        Some(ax) if !exclude_axis => {
+            let a = gizmo_axis_to_vec3(ax);
+            let s0 = ray_line_param(o0, d0, gizmo_center, a)?;
+            let s1 = ray_line_param(o1, d1, gizmo_center, a)?;
+            Some(a * (s1 - s0))
+        }
+        _ => {
+            let normal = match axis {
+                Some(ax) => gizmo_axis_to_vec3(ax),
+                None => camera.forward(),
+            };
+            let p0 = ray_plane_hit(o0, d0, gizmo_center, normal)?;
+            let p1 = ray_plane_hit(o1, d1, gizmo_center, normal)?;
+            let mut delta = p1 - p0;
+            // Drop the rounding left along the normal, so a plane drag stays
+            // exactly in its plane.
+            if let Some(ax) = axis {
+                match ax {
+                    GizmoAxis::X => delta.x = 0.0,
+                    GizmoAxis::Y => delta.y = 0.0,
+                    _ => delta.z = 0.0,
+                }
+            }
+            Some(delta)
+        }
+    }
+}
+
+/// Where the ray `origin + dir * t` (`dir` normalised) crosses the plane through
+/// `point` with unit `normal`, if it does so in front of the origin and not
+/// within about a degree of grazing.
+fn ray_plane_hit(
+    origin: glam::Vec3,
+    dir: glam::Vec3,
+    point: glam::Vec3,
+    normal: glam::Vec3,
+) -> Option<glam::Vec3> {
+    let denom = dir.dot(normal);
+    if denom.abs() < 0.02 {
+        return None;
+    }
+    let t = (point - origin).dot(normal) / denom;
+    (t > 0.0).then(|| origin + dir * t)
+}
+
+/// The parameter `s` of the point on the line `point + axis * s` (`axis` unit)
+/// closest to the ray `origin + dir * t` (`dir` normalised), if that closest
+/// approach is in front of the origin and the two are not near parallel.
+fn ray_line_param(
+    origin: glam::Vec3,
+    dir: glam::Vec3,
+    point: glam::Vec3,
+    axis: glam::Vec3,
+) -> Option<f32> {
+    let w = point - origin;
+    let b = axis.dot(dir);
+    let denom = 1.0 - b * b;
+    if denom < 1e-4 {
+        return None;
+    }
+    let s = (b * dir.dot(w) - axis.dot(w)) / denom;
+    let t = dir.dot(w) + b * s;
+    (t > 0.0).then_some(s)
+}
+
 /// Compute per-axis scale multipliers from a pointer delta given an axis constraint.
 ///
 /// All returned scale factors are clamped to `>= 0.001`.
@@ -481,5 +571,67 @@ mod tests {
         );
         assert!(result.y > 1.0, "non-excluded Y should scale");
         assert!(result.z > 1.0, "non-excluded Z should scale");
+    }
+
+    // --- cursor_translation and its ray helpers ---
+
+    #[test]
+    fn a_ray_parallel_to_a_plane_does_not_hit_it() {
+        let hit = ray_plane_hit(
+            glam::Vec3::Z,
+            glam::Vec3::X,
+            glam::Vec3::ZERO,
+            glam::Vec3::Z,
+        );
+        assert_eq!(hit, None);
+    }
+
+    #[test]
+    fn a_plane_behind_the_ray_is_not_hit() {
+        let hit = ray_plane_hit(
+            glam::Vec3::Z,
+            glam::Vec3::Z,
+            glam::Vec3::ZERO,
+            glam::Vec3::Z,
+        );
+        assert_eq!(hit, None);
+    }
+
+    #[test]
+    fn a_ray_down_the_line_has_no_closest_point() {
+        let s = ray_line_param(
+            glam::Vec3::new(0.0, 0.0, 5.0),
+            -glam::Vec3::Z,
+            glam::Vec3::ZERO,
+            glam::Vec3::Z,
+        );
+        assert_eq!(s, None);
+    }
+
+    #[test]
+    fn the_closest_point_on_a_line_is_where_the_ray_crosses_over_it() {
+        // A ray straight down through (2, 0, 5) passes over the X axis at x = 2.
+        let s = ray_line_param(
+            glam::Vec3::new(2.0, 0.0, 5.0),
+            -glam::Vec3::Z,
+            glam::Vec3::ZERO,
+            glam::Vec3::X,
+        );
+        assert!((s.unwrap() - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_cursor_translation_with_no_move_is_zero() {
+        let camera = make_camera();
+        let vp = glam::Vec2::new(800.0, 600.0);
+        let at = glam::Vec2::new(410.0, 290.0);
+        for (axis, exclude) in [
+            (None, false),
+            (Some(GizmoAxis::X), false),
+            (Some(GizmoAxis::Z), true),
+        ] {
+            let t = cursor_translation(at, at, axis, exclude, glam::Vec3::ZERO, &camera, vp);
+            assert_eq!(t, Some(glam::Vec3::ZERO), "{axis:?} exclude {exclude}");
+        }
     }
 }

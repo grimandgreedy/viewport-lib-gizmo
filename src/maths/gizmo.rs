@@ -285,17 +285,22 @@ impl Gizmo {
                 }
 
                 // --- Plane handles (small quads at axis-pair corners) ---
+                // Translate mode only: scale mode does not draw them.
                 let plane_offset = gizmo_scale * PLANE_OFFSET;
                 let plane_size = gizmo_scale * PLANE_SIZE;
 
-                let plane_handles = [
-                    (GizmoAxis::XY, dirs[0], dirs[1], dirs[2]),
-                    (GizmoAxis::XZ, dirs[0], dirs[2], dirs[1]),
-                    (GizmoAxis::YZ, dirs[1], dirs[2], dirs[0]),
-                ];
+                let plane_handles = if self.mode == GizmoMode::Translate {
+                    &[
+                        (GizmoAxis::XY, dirs[0], dirs[1], dirs[2]),
+                        (GizmoAxis::XZ, dirs[0], dirs[2], dirs[1]),
+                        (GizmoAxis::YZ, dirs[1], dirs[2], dirs[0]),
+                    ][..]
+                } else {
+                    &[]
+                };
 
                 let mut best_plane: Option<(GizmoAxis, f32)> = None;
-                for (axis, dir_a, dir_b, normal) in &plane_handles {
+                for (axis, dir_a, dir_b, normal) in plane_handles {
                     let quad_center = gizmo_center + *dir_a * plane_offset + *dir_b * plane_offset;
                     let denom = ray_dir.dot(*normal);
                     if denom.abs() < 1e-6 {
@@ -446,6 +451,11 @@ pub(crate) const SCREEN_HANDLE_SIZE: f32 = 0.08;
 /// `fov_y` : camera vertical field of view (radians)
 /// `viewport_height` : viewport height in pixels
 /// Target: gizmo should be approximately 100px tall on screen.
+///
+/// This is the perspective formula. An orthographic camera reports the field
+/// of view that frames its height at the focus distance, so here the gizmo only
+/// keeps its size at that distance; use [`gizmo_scale_for_camera`] to size it for
+/// either projection.
 pub fn compute_gizmo_scale(
     gizmo_center_world: glam::Vec3,
     camera_eye: glam::Vec3,
@@ -454,11 +464,28 @@ pub fn compute_gizmo_scale(
 ) -> f32 {
     let dist = (gizmo_center_world - camera_eye).length();
     // world_units_per_pixel at distance = 2 * tan(fov_y/2) * dist / viewport_height
-    let world_per_px = 2.0 * (fov_y * 0.5).tan() * dist / viewport_height;
-    // Target: 100 pixels = gizmo total length.
-    let target_px = 100.0_f32;
-    world_per_px * target_px
+    let world_per_px = 2.0 * (fov_y * 0.5).tan() * dist / viewport_height.max(1.0);
+    world_per_px * GIZMO_TARGET_PX
 }
+
+/// The world-space scale that draws the gizmo at about 100 px on screen for
+/// `camera`, in perspective or orthographic.
+///
+/// Sizes the gizmo from the view height at the gizmo's depth along the view
+/// direction, so it keeps its screen size at any distance in perspective, and
+/// at any depth in orthographic, where depth does not change on-screen size.
+pub fn gizmo_scale_for_camera(
+    gizmo_center_world: glam::Vec3,
+    camera: &viewport_lib_types::camera::Camera,
+    viewport_height: f32,
+) -> f32 {
+    let depth = (gizmo_center_world - camera.eye().as_vec3()).dot(camera.forward());
+    let world_per_px = camera.view_height_at(depth.max(f32::EPSILON)) / viewport_height.max(1.0);
+    world_per_px * GIZMO_TARGET_PX
+}
+
+/// The gizmo's on-screen length in pixels, which the scale helpers size it to.
+const GIZMO_TARGET_PX: f32 = 100.0;
 
 /// Turn a cursor position into the world-space view ray under it.
 ///
