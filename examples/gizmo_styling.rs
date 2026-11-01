@@ -1,21 +1,23 @@
 //! A transform gizmo in an eframe app, with a sidebar that restyles it live.
 //!
 //! Mirrors viewport-lib's `eframe_minimal` embedding (a `ViewportInstance`
-//! rendering into an offscreen texture that egui displays), and adds a right
-//! sidebar: preset buttons (default / thin / bold) and per-axis colour pickers
-//! that edit the [`GizmoStyle`]. Drag a handle to move the cube; drag the
+//! rendering into an `OffscreenViewportTarget` that egui displays), and adds a
+//! right sidebar: preset buttons (default / thin / bold) and per-axis colour
+//! pickers that edit the [`GizmoStyle`]. Drag a handle to move the cube; drag the
 //! background to orbit; press Q (or the sidebar buttons) to cycle the gizmo mode,
-//! and backtick (`) to toggle relative / objective values.
+//! and backtick (`) to toggle relative / objective values. With the cursor over
+//! the viewport, G, R and S start a keyboard session: X / Y / Z constrain it,
+//! typed numbers set a value, Enter or a click confirms, and Escape cancels.
 //!
 //! Run with `cargo run --example gizmo_styling`.
 
 use eframe::{egui, wgpu};
 use glam::{Mat4, Quat, Vec2, Vec3};
 use viewport_lib as vpl;
-use vpl::input::adapters::{from_egui, modifiers_from_egui};
+use vpl::input::adapters::{from_egui_into, modifiers_from_egui};
 use vpl::{
-    Colour, Material, NodeId, OrbitCameraController, ViewportContext, ViewportEvent,
-    ViewportInstance, primitives,
+    Colour, Material, NodeId, OffscreenViewportTarget, OrbitCameraController, PointerOwnership,
+    ViewportContext, ViewportEvent, ViewportInstance, forward_to_viewport, primitives,
 };
 
 use viewport_lib_gizmo::{
@@ -82,14 +84,20 @@ fn main() -> eframe::Result {
                 .wgpu_render_state
                 .as_ref()
                 .expect("wgpu backend required");
-            let mut session = ViewportInstance::new(&rs.device, rs.target_format);
+            // Build for the sRGB variant of egui's surface format, so the
+            // renderer's linear output is encoded once on write into the
+            // offscreen target's render view.
+            let mut session = ViewportInstance::new(
+                &rs.device,
+                OffscreenViewportTarget::render_format(rs.target_format),
+            );
             let cube = session
                 .resources_mut()
                 .upload_mesh_data(&rs.device, &primitives::cube(1.0))
                 .unwrap();
             let blue = session
                 .resources_mut()
-                .upload_material(Material::from_colour(Colour::linear_rgb(0.4, 0.6, 0.9)))
+                .upload_material(Material::from_colour(Colour::srgb_rgb(0.4, 0.6, 0.9)))
                 .unwrap();
             let node = session.scene_mut().add(Some(cube), Mat4::IDENTITY, blue);
             session.camera_mut().set_orbit_distance(8.0);
@@ -110,10 +118,8 @@ fn main() -> eframe::Result {
 
 /// The offscreen render target and its egui texture registration.
 struct Target {
-    _texture: wgpu::Texture,
-    view: wgpu::TextureView,
+    inner: OffscreenViewportTarget,
     id: egui::TextureId,
-    size: [u32; 2],
 }
 
 struct App {
@@ -186,6 +192,7 @@ impl eframe::App for App {
                 ui.separator();
                 ui.label("Drag a handle to move the cube.");
                 ui.label("Drag the background to orbit.");
+                ui.label("G / R / S over the viewport: keyboard move, rotate, scale.");
             });
 
         egui::CentralPanel::default()
@@ -199,42 +206,47 @@ impl eframe::App for App {
                     (rect.height() * ppp).round().max(1.0) as u32,
                 ];
 
-                // (Re)create the offscreen target when the panel size changes.
-                if self.target.as_ref().map_or(true, |t| t.size != size) {
-                    let texture = rs.device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some("viewport_offscreen"),
-                        size: wgpu::Extent3d {
-                            width: size[0],
-                            height: size[1],
-                            depth_or_array_layers: 1,
-                        },
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: rs.target_format,
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                            | wgpu::TextureUsages::TEXTURE_BINDING,
-                        view_formats: &[],
-                    });
-                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                    let id = rs.renderer.write().register_native_texture(
+                // (Re)create the offscreen target when the panel size changes. The
+                // renderer draws into its sRGB render view; egui samples the
+                // non-sRGB sample view, so the encoded bytes are shown as they are.
+                if self
+                    .target
+                    .as_ref()
+                    .map_or(true, |t| t.inner.size() != size)
+                {
+                    let inner = OffscreenViewportTarget::new(&rs.device, rs.target_format, size);
+                    let mut renderer = rs.renderer.write();
+                    if let Some(old) = self.target.take() {
+                        renderer.free_texture(&old.id);
+                    }
+                    let id = renderer.register_native_texture(
                         &rs.device,
-                        &view,
+                        inner.sample_view(),
                         wgpu::FilterMode::Linear,
                     );
-                    self.target = Some(Target {
-                        _texture: texture,
-                        view,
-                        id,
-                        size,
-                    });
+                    self.target = Some(Target { inner, id });
                 }
 
-                let vp_ctx = ViewportContext {
-                    hovered: response.hovered(),
-                    focused: response.has_focus(),
-                    viewport_size: [rect.width(), rect.height()],
+                // Who owns the pointer this frame. A drag or a gizmo session the
+                // viewport started holds it wherever the cursor goes, so the
+                // release, Enter, Escape and typed values still land after the
+                // cursor leaves. Otherwise the viewport owns the input while egui
+                // reports it hovered, which already accounts for anything drawn
+                // over it; under such chrome the pointer is only inside.
+                let pointer_in_rect = ui
+                    .input(|i| i.pointer.latest_pos())
+                    .is_some_and(|p| rect.contains(p));
+                let ownership = if response.dragged() || self.driver.is_active() {
+                    PointerOwnership::Grabbed
+                } else if response.hovered() {
+                    PointerOwnership::Owned
+                } else if pointer_in_rect {
+                    PointerOwnership::Inside
+                } else {
+                    PointerOwnership::Elsewhere
                 };
+                let vp_ctx =
+                    ViewportContext::with_ownership(ownership, [rect.width(), rect.height()]);
                 self.session.begin_frame(vp_ctx);
                 self.session.set_pixels_per_point(ppp);
                 let origin = Vec2::new(rect.left(), rect.top());
@@ -242,11 +254,16 @@ impl eframe::App for App {
                     self.session.handle_event(ViewportEvent::ModifiersChanged(
                         modifiers_from_egui(&i.modifiers),
                     ));
-                    for event in &i.events {
-                        if let Some(ev) = from_egui(event, origin) {
+                    let mut forward = |ev: ViewportEvent| {
+                        if forward_to_viewport(&ev, ownership) {
                             self.session.handle_event(ev);
                         }
+                    };
+                    let mut events = Vec::new();
+                    for event in &i.events {
+                        from_egui_into(event, origin, &mut events);
                     }
+                    events.into_iter().for_each(&mut forward);
                 });
 
                 // Resolve input, then drive the gizmo.
@@ -337,7 +354,9 @@ impl eframe::App for App {
                 }
 
                 let target = self.target.as_ref().unwrap();
-                let cmd = self.session.render(&rs.device, &rs.queue, &target.view);
+                let cmd = self
+                    .session
+                    .render(&rs.device, &rs.queue, target.inner.render_view());
                 rs.queue.submit(std::iter::once(cmd));
                 ui.painter().image(
                     target.id,
