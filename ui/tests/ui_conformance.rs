@@ -1,11 +1,9 @@
 //! The toolkit's conformance run against the gizmo tool.
 
-#![cfg(feature = "ui")]
-
 use std::sync::Arc;
 
 use glam::Vec3;
-use viewport_lib_gizmo::ui::{GIZMO_KIND, GizmoFrame, GizmoTool};
+use viewport_lib_gizmo_ui::{GIZMO_KIND, GizmoFrame, GizmoTool};
 use viewport_lib_types::camera::Camera;
 use viewport_lib_ui_extend::events::UiEvent;
 use viewport_lib_ui_extend::serde_json;

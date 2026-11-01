@@ -32,12 +32,6 @@ pub mod controller;
 pub mod maths;
 pub mod overlay;
 
-// The viewport-lib-ui frontend: draw the gizmo as a Custom widget through the UI
-// toolkit's draw path. Enabled by the `ui` feature; the default build does not
-// pull viewport-lib-ui.
-#[cfg(feature = "ui")]
-pub mod ui;
-
 // Layer 1: the build-your-own-gizmo maths surface.
 pub use maths::gizmo::{
     Gizmo, GizmoAxis, GizmoMode, GizmoSpace, PivotMode, ROTATION_RING_RADIUS, compute_gizmo_scale,

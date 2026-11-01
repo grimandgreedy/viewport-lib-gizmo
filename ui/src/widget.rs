@@ -52,12 +52,12 @@ use viewport_lib_ui_extend::input::{Cursor, Input};
 use viewport_lib_ui_extend::layout::TextMeasure;
 use viewport_lib_ui_extend::serde_json;
 
-use super::frame::GizmoFrame;
-use crate::controller::driver::FrameInput;
-use crate::controller::{GizmoDriver, ManipResult, TransformDelta, ValueMode};
-use crate::maths::gizmo::{self, GizmoAxis, GizmoMode, GizmoSpace};
-use crate::overlay::builder::build_gizmo_overlays;
-use crate::overlay::style::GizmoStyle;
+use crate::frame::GizmoFrame;
+use viewport_lib_gizmo::controller::driver::FrameInput;
+use viewport_lib_gizmo::controller::{GizmoDriver, ManipResult, TransformDelta, ValueMode};
+use viewport_lib_gizmo::maths::gizmo::{self, GizmoAxis, GizmoMode, GizmoSpace};
+use viewport_lib_gizmo::overlay::builder::build_gizmo_overlays;
+use viewport_lib_gizmo::overlay::style::GizmoStyle;
 
 /// The `kind` string to register [`GizmoTool`] under. It carries the `vpl.` prefix
 /// because the gizmo is part of the viewport-lib family, the same namespace the
@@ -106,9 +106,9 @@ impl Default for GizmoDelta {
 
 impl GizmoDelta {
     /// The translation to apply, with any typed value standing in for the dragged
-    /// one on its axis. In [`ValueMode::Objective`](crate::ValueMode::Objective) a
-    /// typed value is an absolute world coordinate, so add the start position back
-    /// yourself rather than using this.
+    /// one on its axis. In [`ValueMode::Objective`] a typed value is an absolute
+    /// world coordinate, so add the start position back yourself rather than using
+    /// this.
     pub fn position(&self) -> [f32; 3] {
         let mut out = self.translation;
         for (i, typed) in self.position_override.iter().enumerate() {
@@ -267,7 +267,7 @@ impl GizmoTool {
 
     /// Whether the numeric readout panel should be shown. Defaults to `true`. The
     /// host reads this to toggle the visibility of the panel built by
-    /// [`readout_panel`](super::readout::readout_panel).
+    /// [`readout_panel`](crate::readout::readout_panel).
     pub fn show_readout(&self) -> bool {
         self.shared().look.show_readout
     }
@@ -329,7 +329,7 @@ impl GizmoTool {
     }
 
     /// Set the value mode. Pair this with the segmented control from
-    /// [`value_mode_segmented`](super::readout::value_mode_segmented).
+    /// [`value_mode_segmented`](crate::readout::value_mode_segmented).
     pub fn set_value_mode(&self, mode: ValueMode) {
         self.shared().session.driver.set_value_mode(mode);
     }
@@ -538,6 +538,8 @@ fn gizmo_result(result: ManipResult) -> Option<GizmoResult> {
         ManipResult::Commit => Some(GizmoResult::Commit),
         ManipResult::Cancel => Some(GizmoResult::Cancel),
         ManipResult::ConstraintChanged => Some(GizmoResult::ConstraintChanged),
+        // A result added to the non-exhaustive ManipResult is not reported yet.
+        _ => None,
     }
 }
 
@@ -581,10 +583,8 @@ mod tests {
 
     #[test]
     fn transform_delta_maps_to_arrays() {
-        let delta = TransformDelta {
-            translation: Vec3::new(1.0, 2.0, 3.0),
-            ..Default::default()
-        };
+        let mut delta = TransformDelta::default();
+        delta.translation = Vec3::new(1.0, 2.0, 3.0);
         let mapped: GizmoDelta = delta.into();
         assert_eq!(mapped.translation, [1.0, 2.0, 3.0]);
         assert_eq!(mapped.rotation, [0.0, 0.0, 0.0, 1.0]);

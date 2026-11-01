@@ -1,20 +1,20 @@
-//! Draw the gizmo through viewport-lib-ui's toolkit instead of submitting overlay
-//! items to a renderer directly.
+//! Draw the viewport-lib-gizmo transform gizmo through viewport-lib-ui's toolkit
+//! instead of submitting overlay items to a renderer directly.
 //!
-//! This frontend is for consumers already using viewport-lib-ui. It hands the
+//! This crate is for consumers already using viewport-lib-ui. It hands the
 //! gizmo's projected overlay items to the toolkit's draw list as they are, so the
 //! handles draw in the same pass as the rest of the UI, layer with the panels, and
 //! arbitrate the pointer through one capture signal. The 3D maths, the camera, and
-//! [`build_gizmo_overlays`](crate::build_gizmo_overlays) stay in the core crate:
-//! this module only places their output.
+//! [`build_gizmo_overlays`](viewport_lib_gizmo::build_gizmo_overlays) stay in
+//! `viewport-lib-gizmo`: this crate only places their output.
 //!
 //! The widget is written against `viewport-lib-ui-extend`, and the readout panel
-//! against `viewport-lib-ui-document`. Both are renderer-free, so enabling the `ui`
-//! feature does not pull viewport-lib or wgpu.
+//! against `viewport-lib-ui-document`. Both are renderer-free, so this crate does
+//! not pull viewport-lib or wgpu.
 //!
-//! The base frontend ([`build_gizmo_overlays`](crate::build_gizmo_overlays), which
-//! produces `viewport-lib-types` overlay items) is unchanged and remains the path
-//! for consumers who submit to a renderer without the UI toolkit.
+//! Consumers who submit to a renderer without the UI toolkit use
+//! [`build_gizmo_overlays`](viewport_lib_gizmo::build_gizmo_overlays) from
+//! `viewport-lib-gizmo` directly.
 
 mod frame;
 pub mod readout;

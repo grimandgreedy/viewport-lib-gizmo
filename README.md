@@ -145,53 +145,12 @@ handle; while a session runs, every view shows the axis being changed.
 `cursor_ray` handles orthographic cameras, so the handles can be grabbed in
 orthographic top, front and side views as well as in perspective.
 
-## The `ui` feature
-
-`ui` adds the `ui` module, which hosts the gizmo as a
-[viewport-lib-ui](https://github.com/grimandgreedy/viewport-lib-ui) `Custom`
-widget. `GizmoTool` paints the handles in the same pass as the rest of the UI and
-shares one pointer capture with the panels, so a click on a panel never reaches
-the gizmo or the camera. Results come back as a typed `GizmoResult`. The module
-also has a readout panel: an x / y / z vector field with a relative / objective
-toggle and a badge for the current mode.
-
-Register one `GizmoTool` under `GIZMO_KIND` (`"vpl.gizmo"`) and it serves
-every gizmo node on the screen. Each frame, put a `GizmoFrame` (the camera, the
-selection centre and the resolved input) on the frame's host map:
-
-```rust,ignore
-let map = HostMap::new().with_context(
-    GizmoFrame::new(camera)
-        .with_selection_centre(Some(centre))
-        .with_action_frame(action),
-);
-let frame = Frame::new(size, &measure, &registry).with_host(HostSources::default().with_map(&map));
-let result = ui.update_frame(&mut screen, &input, &frame);
-```
-
-For several views of one selection, put a pane of that kind in each view, give
-each its own widget id, and build each view's frames with that view's camera in
-its `GizmoFrame`. The panes share one driver: the pane the
-pointer is on drives it, a drag or a G / R / S session stays with the pane it
-started in, and the others paint the gizmo for their own camera. What a pane
-keeps between frames lives in the toolkit's per-node state, so the tool holds
-nothing per pane.
-
-The feature pulls only `viewport-lib-ui-extend` and `viewport-lib-ui-document`,
-which are renderer-free, so it still does not depend on viewport-lib or wgpu.
-
-```toml
-viewport-lib-gizmo = { path = "...", features = ["ui"] }
-```
-
 ## Examples
 
 ```sh
 cargo run --example gizmo_basic                 # ViewportApp, one cube, default style
 cargo run --example gizmo_styling               # eframe, sidebar restyles the gizmo live
-cargo run --example gizmo_ui --features ui      # the gizmo as a viewport-lib-ui widget
 cargo run --example gizmo_multi_viewport        # four views, one gizmo, three of them orthographic
-cargo run --example gizmo_ui_multi_viewport --features ui   # the same four views through the ui widget
 ```
 
 In all of them, Tab or Q cycles the mode and backtick toggles relative /
@@ -199,12 +158,11 @@ objective values. G, R and S start a keyboard session.
 
 ## Building
 
-The crate uses path dependencies, so it expects `viewport-lib` and
-`viewport-lib-ui` checked out next to it:
+The crate uses path dependencies, so it expects `viewport-lib` checked out next
+to it:
 
 ```text
 viewport-lib/
-viewport-lib-ui/
 viewport-lib-gizmo/
 ```
 

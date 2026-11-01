@@ -1,14 +1,12 @@
 //! The gizmo tool driven through the toolkit's frame loop: hover, capture, the
 //! cursor shape, drags, keyboard sessions, and one tool behind several panes.
 
-#![cfg(feature = "ui")]
-
 use std::sync::Arc;
 
 use glam::{Vec2, Vec3};
 use viewport_lib_gizmo::GizmoMode;
 use viewport_lib_gizmo::compute_gizmo_scale;
-use viewport_lib_gizmo::ui::{GIZMO_KIND, GizmoFrame, GizmoResult, GizmoTool};
+use viewport_lib_gizmo_ui::{GIZMO_KIND, GizmoFrame, GizmoResult, GizmoTool};
 use viewport_lib_types::camera::Camera;
 use viewport_lib_types::input::{Action, ActionFrame, ResolvedActionState};
 use viewport_lib_ui::{ApproxMeasure, Frame, HostSources};

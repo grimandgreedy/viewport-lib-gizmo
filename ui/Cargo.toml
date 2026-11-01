@@ -1,0 +1,51 @@
+[package]
+name = "viewport-lib-gizmo-ui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "The viewport-lib-gizmo transform gizmo as a viewport-lib-ui Custom widget, with a vector-field readout panel."
+license = "GPL-3.0-only"
+# viewport-lib-ui is not on crates.io, so neither is this crate.
+publish = false
+autoexamples = false
+
+[dependencies]
+viewport-lib-gizmo = { path = ".." }
+glam = { version = "=0.30.10", features = ["bytemuck"] }
+viewport-lib-types = { path = "../../../viewport-lib/crates/viewport-lib-types" }
+# What a custom widget is written against: the handler trait, its context and
+# per-node state, and the draw and input types it names. No viewport-lib or wgpu
+# dependency.
+viewport-lib-ui-extend = { path = "../../../viewport-lib-ui/crates/extend" }
+# The readout panel is a widget tree the host places on its screen, built from
+# document types (layouts, badges, insets, theme roles) the extension surface does
+# not carry.
+viewport-lib-ui-document = { path = "../../../viewport-lib-ui/crates/document" }
+# Lets the tool report its transform delta as a typed result the host reads back,
+# and define the output schema. Pure Rust, no renderer.
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# The examples render the scene with the ViewportApp runner.
+viewport-lib = { path = "../../../viewport-lib/crates/viewport-lib", features = [
+    "app",
+    "egui-adapter",
+] }
+# The examples run the toolkit end to end: they lower the DrawList to overlay
+# items, translate input, and measure text. Only the examples need the facade; the
+# library stays on the renderer-free sub-crates.
+viewport-lib-ui = { path = "../../../viewport-lib-ui/crates/ui" }
+# The headless harness and the conformance run the widget's tests drive it through.
+viewport-lib-ui-test = { path = "../../../viewport-lib-ui/crates/test" }
+
+# The gizmo hosted as a viewport-lib-ui Custom widget, with a panel over the scene
+# to show capture arbitration and a vector-field readout.
+[[example]]
+name = "gizmo_ui"
+path = "examples/gizmo_ui.rs"
+
+# One GizmoTool registered once across a four-view layout, with a pane in each
+# view.
+[[example]]
+name = "gizmo_ui_multi_viewport"
+path = "examples/gizmo_ui_multi_viewport.rs"

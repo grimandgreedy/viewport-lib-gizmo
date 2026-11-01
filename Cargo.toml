@@ -7,28 +7,9 @@ description = "Standalone transform gizmo for viewport-lib scenes: renderer-free
 license = "GPL-3.0-only"
 autoexamples = false
 
-[features]
-default = []
-# The `ui` frontend: a viewport-lib-ui Custom widget that draws the gizmo through
-# the toolkit's draw path and reports a transform delta. It pulls only renderer-free
-# viewport-lib-ui crates, so the default build stays on viewport-lib-types + glam
-# and never touches the renderer.
-ui = ["dep:viewport-lib-ui-extend", "dep:viewport-lib-ui-document", "dep:serde"]
-
 [dependencies]
 glam = { version = "=0.30.10", features = ["bytemuck"] }
 viewport-lib-types = { path = "../../viewport-lib/crates/viewport-lib-types" }
-# Only under the `ui` feature. What a custom widget is written against: the handler
-# trait, its context and per-node state, and the draw and input types it names. No
-# viewport-lib or wgpu dependency.
-viewport-lib-ui-extend = { path = "../../viewport-lib-ui/crates/extend", optional = true }
-# Only under `ui`. The readout panel is a widget tree the host places on its screen,
-# built from document types (layouts, badges, insets, theme roles) the extension
-# surface does not carry.
-viewport-lib-ui-document = { path = "../../viewport-lib-ui/crates/document", optional = true }
-# Only under `ui`. Lets the tool report its transform delta as a typed result the
-# host reads back, and define the output schema. Pure Rust, no renderer.
-serde = { version = "1", optional = true, features = ["derive"] }
 
 [dev-dependencies]
 # The renderer is needed only by examples that draw the overlay items, not by
@@ -41,15 +22,15 @@ viewport-lib = { path = "../../viewport-lib/crates/viewport-lib", features = [
 # eframe drives the sidebar example. Pinned to the version viewport-lib's own
 # eframe examples use (the wgpu 27 leg).
 eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts"] }
-# The vpl-ui frontend example runs the toolkit end to end: it lowers the DrawList
-# to overlay items, translates input, and measures text. Only the example needs
-# the facade; the library's `ui` feature stays on the renderer-free sub-crates.
-viewport-lib-ui = { path = "../../viewport-lib-ui/crates/ui" }
-# The headless harness and the conformance run the ui widget's tests drive it through.
-viewport-lib-ui-test = { path = "../../viewport-lib-ui/crates/test" }
 
-# The facade depends on viewport-lib by version; point it at the same local crate
-# the gizmo uses so the overlay item types are one and the same.
+# The viewport-lib-ui frontend is a separate crate, viewport-lib-gizmo-ui, so this
+# one builds and publishes without viewport-lib-ui.
+[workspace]
+members = ["ui"]
+
+# viewport-lib-ui depends on viewport-lib by version; point it at the same local
+# crate the gizmo uses so the overlay item types are one and the same. Patches only
+# apply from the workspace root, so this also covers the ui crate.
 [patch.crates-io]
 viewport-lib = { path = "../../viewport-lib/crates/viewport-lib" }
 viewport-lib-types = { path = "../../viewport-lib/crates/viewport-lib-types" }
@@ -69,17 +50,3 @@ path = "examples/gizmo_multi_viewport.rs"
 [[example]]
 name = "gizmo_styling"
 path = "examples/gizmo_styling.rs"
-
-# The gizmo hosted as a viewport-lib-ui Custom widget, with a panel over the scene
-# to show capture arbitration and a vector-field readout. Needs the `ui` feature.
-[[example]]
-name = "gizmo_ui"
-path = "examples/gizmo_ui.rs"
-required-features = ["ui"]
-
-# The ui frontend across a four-view layout: one GizmoTool registered once, with a
-# pane in each view. Needs the `ui` feature.
-[[example]]
-name = "gizmo_ui_multi_viewport"
-path = "examples/gizmo_ui_multi_viewport.rs"
-required-features = ["ui"]

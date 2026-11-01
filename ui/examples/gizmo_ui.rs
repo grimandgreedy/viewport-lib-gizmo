@@ -20,7 +20,7 @@
 //! The readout carries a G / R / S badge for the mode it is reading, matching the key
 //! that starts that session.
 //!
-//! Run with `cargo run --example gizmo_ui --features ui`.
+//! Run with `cargo run -p viewport-lib-gizmo-ui --example gizmo_ui`.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -40,12 +40,12 @@ use viewport_lib_ui::{
     WidgetRegistry, custom_output, extend_frame, map_cursor, roles, serde_json,
 };
 
-use viewport_lib_gizmo::ui::{
+use viewport_lib_gizmo::{GizmoMode, ValueMode};
+use viewport_lib_gizmo_ui::{
     GIZMO_KIND, GizmoDelta, GizmoFrame, GizmoResult, GizmoTool, ObjectPose, ReadoutIds,
     ReadoutWhen, readout_panel, readout_values_in, set_mode_badge, set_readout,
     value_mode_from_index, value_mode_index,
 };
-use viewport_lib_gizmo::{GizmoMode, ValueMode};
 
 // Widget ids in the screen.
 const ROOT: u32 = 0;

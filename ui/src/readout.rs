@@ -8,7 +8,7 @@
 //!
 //! The host builds these once, updates the readout each frame with [`set_readout`]
 //! from the delta it reads back, and applies the toggle with the tool's
-//! [`set_value_mode`](super::widget::GizmoTool::set_value_mode).
+//! [`set_value_mode`](crate::widget::GizmoTool::set_value_mode).
 //!
 //! What the field counts follows the value mode. Relative reads the delta, so it
 //! starts at zero (or one, for scale) and shows how far the drag has gone.
@@ -22,10 +22,10 @@ use viewport_lib_ui_document::{
     WidgetKind, roles,
 };
 
-use crate::controller::ValueMode;
-use crate::maths::gizmo::GizmoMode;
+use viewport_lib_gizmo::controller::ValueMode;
+use viewport_lib_gizmo::maths::gizmo::GizmoMode;
 
-use super::widget::GizmoDelta;
+use crate::widget::GizmoDelta;
 
 /// Default inner padding of the readout panel, in logical pixels.
 pub const READOUT_PADDING: f32 = 6.0;
@@ -62,6 +62,8 @@ pub fn mode_tag(mode: GizmoMode) -> &'static str {
         GizmoMode::Translate => "G",
         GizmoMode::Rotate => "R",
         GizmoMode::Scale => "S",
+        // A mode added to the non-exhaustive GizmoMode has no tag yet.
+        _ => "",
     }
 }
 
@@ -140,6 +142,8 @@ pub fn readout_values(mode: GizmoMode, delta: &GizmoDelta) -> [f32; 3] {
                 &degrees(delta.rotation_override),
             )
         }
+        // A mode added to the non-exhaustive GizmoMode has no reading yet.
+        _ => [0.0; 3],
     }
 }
 
@@ -167,6 +171,7 @@ pub fn readout_values_in(
                 &degrees(delta.rotation_override),
             )
         }
+        _ => [0.0; 3],
     }
 }
 
@@ -205,7 +210,7 @@ pub fn set_readout(root: &mut Widget, id: WidgetId, values: [f32; 3]) {
 /// Build the value-mode toggle as a two-option segmented control, selected to
 /// match `mode`. A pick reports the new index; map it back with
 /// [`value_mode_from_index`] and pass it to
-/// [`set_value_mode`](super::widget::GizmoTool::set_value_mode).
+/// [`set_value_mode`](crate::widget::GizmoTool::set_value_mode).
 pub fn value_mode_segmented(id: WidgetId, mode: ValueMode) -> Widget {
     Widget::segmented(id, ["Relative", "Objective"], value_mode_index(mode))
 }
@@ -235,7 +240,7 @@ pub fn value_mode_from_index(index: u32) -> ValueMode {
 ///
 /// Colours resolve against the active theme (surface, text), so the panel matches
 /// the surrounding UI. Toggle whether it is shown with
-/// [`GizmoTool::show_readout`](super::widget::GizmoTool::show_readout).
+/// [`GizmoTool::show_readout`](crate::widget::GizmoTool::show_readout).
 pub fn readout_panel(ids: ReadoutIds, mode: GizmoMode, value_mode: ValueMode) -> Widget {
     // The badge sits beside the values, so the row says what is being changed as well as
     // by how much.

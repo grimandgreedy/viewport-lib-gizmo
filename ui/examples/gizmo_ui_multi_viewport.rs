@@ -17,7 +17,7 @@
 //! cursor. Tab or Q cycles the mode, backtick (`) toggles relative / objective,
 //! and G / R / S start a keyboard session in the view under the cursor.
 //!
-//! Run with `cargo run --example gizmo_ui_multi_viewport --features ui`.
+//! Run with `cargo run -p viewport-lib-gizmo-ui --example gizmo_ui_multi_viewport`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -40,8 +40,8 @@ use viewport_lib_ui::{
 };
 
 use viewport_lib_gizmo::ActiveView;
-use viewport_lib_gizmo::ui::{GIZMO_KIND, GizmoDelta, GizmoFrame, GizmoResult, GizmoTool};
 use viewport_lib_gizmo::{GizmoMode, ValueMode};
+use viewport_lib_gizmo_ui::{GIZMO_KIND, GizmoDelta, GizmoFrame, GizmoResult, GizmoTool};
 
 const LABELS: [&str; 4] = ["Perspective", "Top", "Front", "Right"];
 const ROOT: u32 = 0;
