@@ -93,7 +93,7 @@ fn main() {
                         .unwrap();
                     let transform = Mat4::from_translation(Vec3::ZERO);
                     let node = session.scene_mut().add(Some(cube), transform, blue);
-                    session.camera_mut().distance = 8.0;
+                    session.camera_mut().set_orbit_distance(8.0);
                     let mut s = state.borrow_mut();
                     s.node = Some(node);
                     s.base = transform;
@@ -214,8 +214,7 @@ fn main() {
                     if let Some(gizmo_center) = s.driver.gizmo_center() {
                         let scale = s.driver.gizmo_scale();
                         let view_proj = camera.proj_matrix() * camera.view_matrix();
-                        let forward =
-                            (camera.center - camera.eye_position()).normalize_or(Vec3::NEG_Z);
+                        let forward = camera.forward();
                         let mode = s.driver.gizmo().mode;
                         let hovered = s.driver.hovered_axis();
                         let style = s.style.clone();

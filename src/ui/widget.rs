@@ -373,9 +373,9 @@ impl CustomWidget for GizmoTool {
 
         let camera = &frame.camera;
         let view_proj = camera.proj_matrix() * camera.view_matrix();
-        let forward = (camera.center - camera.eye_position()).normalize_or_zero();
+        let forward = camera.forward();
         let scale =
-            gizmo::compute_gizmo_scale(centre, camera.eye_position(), camera.fov_y, viewport[1]);
+            gizmo::compute_gizmo_scale(centre, camera.eye().as_vec3(), camera.fov_y(), viewport[1]);
 
         // A running session lights the axis being changed in every pane. Otherwise a
         // pane lights the handle it last saw hovered, and only while the pointer is
@@ -552,11 +552,7 @@ mod tests {
     const VP: [f32; 2] = [1280.0, 720.0];
 
     fn camera() -> Camera {
-        Camera {
-            center: Vec3::ZERO,
-            distance: 6.0,
-            ..Camera::default()
-        }
+        Camera::orbit(glam::DVec3::ZERO, 6.0, Camera::default().orientation())
     }
 
     /// A frame through `camera` with the gizmo at the origin.
@@ -623,8 +619,8 @@ mod tests {
         let tool = GizmoTool::new();
         let near = paint(&tool, &selected(camera()));
         let mut far = camera();
-        far.distance = 40.0;
-        far.orientation = glam::Quat::from_rotation_y(0.8);
+        far.set_orbit_distance(40.0);
+        far.set_orbit_orientation(glam::Quat::from_rotation_y(0.8));
         assert_ne!(
             paint(&tool, &selected(far)),
             near,

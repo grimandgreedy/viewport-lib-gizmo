@@ -473,17 +473,9 @@ pub fn cursor_ray(
     cursor_viewport: glam::Vec2,
     viewport_size: glam::Vec2,
 ) -> (glam::Vec3, glam::Vec3) {
-    let inv_view_proj = (camera.proj_matrix() * camera.view_matrix()).inverse();
     let ndc_x = (cursor_viewport.x / viewport_size.x.max(1.0)) * 2.0 - 1.0;
     let ndc_y = 1.0 - (cursor_viewport.y / viewport_size.y.max(1.0)) * 2.0;
-    let far_world = inv_view_proj.project_point3(glam::Vec3::new(ndc_x, ndc_y, 1.0));
-    let origin = if camera.projection == viewport_lib_types::camera::Projection::Orthographic {
-        inv_view_proj.project_point3(glam::Vec3::new(ndc_x, ndc_y, 0.0))
-    } else {
-        camera.eye_position()
-    };
-    let dir = (far_world - origin).normalize_or(glam::Vec3::NEG_Z);
-    (origin, dir)
+    camera.screen_ray(glam::Vec2::new(ndc_x, ndc_y))
 }
 
 // ---------------------------------------------------------------------------
@@ -998,18 +990,16 @@ mod tests {
     /// on and off the screen centre, under both projections.
     #[test]
     fn cursor_ray_hits_the_handle_under_the_cursor() {
-        use viewport_lib_types::camera::{Camera, Projection};
+        use viewport_lib_types::camera::Camera;
         let vp = glam::Vec2::new(400.0, 400.0);
-        for projection in [Projection::Perspective, Projection::Orthographic] {
+        for orthographic in [false, true] {
             for x in [0.0, 1.5, 3.0] {
-                let mut camera = Camera::default();
-                camera.center = glam::Vec3::ZERO;
-                camera.distance = 10.0;
-                camera.orientation = glam::Quat::IDENTITY;
-                camera.aspect = 1.0;
-                camera.projection = projection;
+                let mut camera =
+                    Camera::orbit(glam::DVec3::ZERO, 10.0, glam::Quat::IDENTITY).with_aspect(1.0);
+                camera.set_orthographic(orthographic);
                 let centre = glam::Vec3::new(x, 0.0, 0.0);
-                let scale = compute_gizmo_scale(centre, camera.eye_position(), camera.fov_y, vp.y);
+                let scale =
+                    compute_gizmo_scale(centre, camera.eye().as_vec3(), camera.fov_y(), vp.y);
                 let handle = centre + glam::Vec3::Y * scale * 0.6;
                 let clip = (camera.proj_matrix() * camera.view_matrix()) * handle.extend(1.0);
                 let ndc = clip.truncate() / clip.w;
@@ -1023,7 +1013,7 @@ mod tests {
                 assert_eq!(
                     hit,
                     GizmoAxis::Y,
-                    "{projection:?} with the gizmo at x = {x}"
+                    "orthographic {orthographic} with the gizmo at x = {x}"
                 );
             }
         }

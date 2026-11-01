@@ -208,7 +208,7 @@ fn main() {
                         .unwrap();
                     let transform = Mat4::from_translation(Vec3::ZERO);
                     let node = session.scene_mut().add(Some(cube), transform, blue);
-                    session.camera_mut().distance = 8.0;
+                    session.camera_mut().set_orbit_distance(8.0);
                     let mut a = app.borrow_mut();
                     a.node = Some(node);
                     a.base = transform;

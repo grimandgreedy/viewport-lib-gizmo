@@ -261,11 +261,11 @@ impl GizmoDriver {
         };
         let scale = gizmo::compute_gizmo_scale(
             centre,
-            camera.eye_position(),
-            camera.fov_y,
+            camera.eye().as_vec3(),
+            camera.fov_y(),
             viewport_size.y,
         );
-        let forward = (camera.center - camera.eye_position()).normalize_or(Vec3::NEG_Z);
+        let forward = camera.forward();
         build_gizmo_overlays(
             style,
             self.gizmo.mode,
@@ -291,8 +291,8 @@ impl GizmoDriver {
         if let Some(center) = self.gizmo_center {
             self.gizmo_scale = gizmo::compute_gizmo_scale(
                 center,
-                input.camera.eye_position(),
-                input.camera.fov_y,
+                input.camera.eye().as_vec3(),
+                input.camera.fov_y(),
                 input.viewport_size.y,
             );
         }
@@ -363,8 +363,7 @@ mod tests {
 
     fn camera() -> Camera {
         let mut c = Camera::default();
-        c.center = Vec3::ZERO;
-        c.distance = 6.0;
+        c.set_orbit(glam::DVec3::ZERO, 6.0, c.orientation());
         c
     }
 

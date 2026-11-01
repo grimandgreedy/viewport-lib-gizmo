@@ -29,8 +29,8 @@ use vpl::scene::Scene;
 use vpl::{
     AppConfig, BindingPreset, BlitTexture, ButtonState, Camera, CameraFrame, FrameData, KeyCode,
     LabelItem, Material, NodeId, OffscreenViewportTarget, OrbitCameraController, PointerOwnership,
-    Projection, SceneFrame, Selection, ViewportContext, ViewportEvent, ViewportId, ViewportInput,
-    WindowConfig, forward_to_viewport, primitives,
+    SceneFrame, Selection, ViewportContext, ViewportEvent, ViewportId, ViewportInput, WindowConfig,
+    forward_to_viewport, primitives,
 };
 
 use viewport_lib_ui::{
@@ -96,28 +96,25 @@ struct State {
 /// The four cameras: a perspective view and orthographic top, front and right.
 fn cameras() -> [Camera; 4] {
     let half_pi = std::f32::consts::FRAC_PI_2;
-    let camera = |orientation: Quat, projection: Projection, distance: f32| Camera {
-        center: Vec3::ZERO,
-        distance,
-        orientation,
-        projection,
-        ..Camera::default()
+    let camera = |orientation: Quat, orthographic: bool, distance: f32| {
+        let camera = Camera::orbit(glam::DVec3::ZERO, distance, orientation);
+        if orthographic {
+            camera.orthographic()
+        } else {
+            camera
+        }
     };
     [
         camera(
             Quat::from_rotation_z(0.6) * Quat::from_rotation_x(1.1),
-            Projection::Perspective,
+            false,
             12.0,
         ),
-        camera(Quat::IDENTITY, Projection::Orthographic, 10.0),
-        camera(
-            Quat::from_rotation_x(half_pi),
-            Projection::Orthographic,
-            10.0,
-        ),
+        camera(Quat::IDENTITY, true, 10.0),
+        camera(Quat::from_rotation_x(half_pi), true, 10.0),
         camera(
             Quat::from_rotation_z(half_pi) * Quat::from_rotation_x(half_pi),
-            Projection::Orthographic,
+            true,
             10.0,
         ),
     ]

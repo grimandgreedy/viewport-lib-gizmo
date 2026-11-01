@@ -28,11 +28,7 @@ const PANE: u32 = 1;
 const COVER: u32 = 50;
 
 fn camera() -> Camera {
-    Camera {
-        center: Vec3::ZERO,
-        distance: 6.0,
-        ..Camera::default()
-    }
+    Camera::orbit(glam::DVec3::ZERO, 6.0, Camera::default().orientation())
 }
 
 /// Project a world point to a viewport pixel, matching the overlay builder.
@@ -48,7 +44,7 @@ fn to_px(camera: &Camera, world: Vec3) -> Vec2 {
 /// A point on the X arm of a gizmo at the origin.
 fn x_handle() -> [f32; 2] {
     let camera = camera();
-    let scale = compute_gizmo_scale(Vec3::ZERO, camera.eye_position(), camera.fov_y, VP[1]);
+    let scale = compute_gizmo_scale(Vec3::ZERO, camera.eye().as_vec3(), camera.fov_y(), VP[1]);
     to_px(&camera, Vec3::X * (scale * 0.5)).to_array()
 }
 
@@ -372,7 +368,7 @@ fn every_pane_of_one_tool_draws_its_gizmo() {
 fn two_views_with_two_cameras_draw_differently_from_one_tool() {
     let tool = tool();
     let mut side = camera();
-    side.orientation = glam::Quat::from_rotation_y(0.9);
+    side.set_orbit_orientation(glam::Quat::from_rotation_y(0.9));
     let (mut a, mut b) = (one_pane(&tool, 1), one_pane(&tool, 2));
     b.set_context(framed(side.clone(), ActionFrame::default()));
     a.feed(Input::at([0.0, 0.0]).without_pointer());
@@ -395,7 +391,7 @@ fn a_view_picks_through_its_own_camera() {
     // point over the X arm from the default camera is empty space there.
     let tool = tool();
     let mut side = camera();
-    side.center = Vec3::new(3.0, 0.0, 0.0);
+    side.set_orbit_center(glam::DVec3::new(3.0, 0.0, 0.0));
     let mut h = one_pane(&tool, PANE);
     h.set_context(framed(side, ActionFrame::default()));
     h.feed(Input::at(x_handle()));

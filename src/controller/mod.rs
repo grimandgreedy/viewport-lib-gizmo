@@ -232,7 +232,7 @@ impl ManipulationController {
                     } else {
                         // Unconstrained: rotate around the camera view direction,
                         // accumulating the per-frame rotation into a running total.
-                        let view_dir = (ctx.camera.center - ctx.camera.eye_position()).normalize();
+                        let view_dir = ctx.camera.forward();
                         let frame_rot =
                             glam::Quat::from_axis_angle(view_dir, pointer_delta.x * 0.01 + twist);
                         session.cumulative_rotation = frame_rot * session.cumulative_rotation;

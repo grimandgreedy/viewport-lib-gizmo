@@ -1,7 +1,5 @@
 //! What a gizmo pane is drawn and driven against in one frame, as the host hands it over.
 
-use std::fmt;
-
 use glam::{Quat, Vec3};
 use viewport_lib_types::camera::Camera;
 use viewport_lib_types::input::ActionFrame;
@@ -21,7 +19,7 @@ use viewport_lib_types::input::ActionFrame;
 /// The map belongs to the frame, so a layout with several views builds one per view, each with
 /// that view's camera, and every pane draws and picks through the camera of the frame it is in.
 /// A frame with none set shows no gizmo.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 #[non_exhaustive]
 pub struct GizmoFrame {
     /// The camera the pane draws and picks through.
@@ -61,26 +59,5 @@ impl GizmoFrame {
     pub fn with_action_frame(mut self, action_frame: ActionFrame) -> Self {
         self.action_frame = action_frame;
         self
-    }
-}
-
-/// Written out by hand because [`Camera`] is not `Debug`. Lists every field the gizmo is drawn
-/// from, since a cached reader of the context compares frames by this form.
-impl fmt::Debug for GizmoFrame {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let c = &self.camera;
-        f.debug_struct("GizmoFrame")
-            .field("projection", &c.projection)
-            .field("center", &c.center)
-            .field("distance", &c.distance)
-            .field("orientation", &c.orientation)
-            .field("fov_y", &c.fov_y)
-            .field("aspect", &c.aspect)
-            .field("znear", &c.znear)
-            .field("zfar", &c.zfar)
-            .field("selection_centre", &self.selection_centre)
-            .field("space_orientation", &self.space_orientation)
-            .field("action_frame", &self.action_frame)
-            .finish()
     }
 }

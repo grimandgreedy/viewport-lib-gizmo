@@ -39,9 +39,7 @@ pub fn build_numeric_label(style: &GizmoStyle, text: &str, gizmo_center: Vec3) -
     // A World anchor follows the gizmo: swap the style's placeholder position for
     // the live centre. A Viewport anchor is used as-is.
     let anchor = match style.label_anchor {
-        OverlayOrigin::World(_) => {
-            OverlayOrigin::World([gizmo_center.x, gizmo_center.y, gizmo_center.z])
-        }
+        OverlayOrigin::World(_) => OverlayOrigin::World(gizmo_center.as_dvec3()),
         other => other,
     };
     let mut label = LabelItem::new(text)

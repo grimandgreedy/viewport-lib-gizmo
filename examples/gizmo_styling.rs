@@ -92,7 +92,7 @@ fn main() -> eframe::Result {
                 .upload_material(Material::from_colour(Colour::linear_rgb(0.4, 0.6, 0.9)))
                 .unwrap();
             let node = session.scene_mut().add(Some(cube), Mat4::IDENTITY, blue);
-            session.camera_mut().distance = 8.0;
+            session.camera_mut().set_orbit_distance(8.0);
 
             Ok(Box::new(App {
                 session,
@@ -307,7 +307,7 @@ impl eframe::App for App {
                 if let Some(gizmo_center) = self.driver.gizmo_center() {
                     let scale = self.driver.gizmo_scale();
                     let view_proj = camera.proj_matrix() * camera.view_matrix();
-                    let forward = (camera.center - camera.eye_position()).normalize_or(Vec3::NEG_Z);
+                    let forward = camera.forward();
                     let mode = self.driver.gizmo().mode;
                     let hovered = self.driver.hovered_axis();
                     let numeric = self.driver.readout();

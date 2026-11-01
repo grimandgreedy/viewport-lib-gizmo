@@ -16,11 +16,7 @@ use viewport_lib_ui_test::conformance::{Check, Subject};
 /// A frame on a selection at the origin, so every pane has handles to draw and the
 /// drive the checks run lands on the gizmo's centre.
 fn framed() -> HostMap<'static> {
-    let camera = Camera {
-        center: Vec3::ZERO,
-        distance: 6.0,
-        ..Camera::default()
-    };
+    let camera = Camera::orbit(glam::DVec3::ZERO, 6.0, Camera::default().orientation());
     HostMap::new().with_context(GizmoFrame::new(camera).with_selection_centre(Some(Vec3::ZERO)))
 }
 
