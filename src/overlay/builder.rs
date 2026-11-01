@@ -9,7 +9,7 @@
 //! The default style's proportions match the constants
 //! [`Gizmo::hit_test`](crate::maths::gizmo::Gizmo::hit_test) uses, so what is
 //! drawn matches what is picked. Sizing tracks camera distance through the
-//! caller's `scale` (from [`crate::maths::gizmo::compute_gizmo_scale`]); arrow
+//! caller's `scale` (from [`crate::maths::gizmo::gizmo_scale_for_camera`]); arrow
 //! heads and rings foreshorten because they are projected from real world-space
 //! geometry.
 
@@ -30,16 +30,16 @@ use viewport_lib_types::overlay::{
 /// (or [`ManipulationState::numeric_display`](crate::controller::ManipulationState)).
 /// Placement, alignment, offset, size, and colour come from the `label_*` fields
 /// of [`GizmoStyle`]. When the style anchor is `OverlayOrigin::World(_)` the
-/// readout is anchored at `gizmo_center`, so it follows the gizmo and is skipped
+/// readout is anchored at `gizmo_centre`, so it follows the gizmo and is skipped
 /// automatically when the centre is off-screen; a `Viewport` anchor pins it to a
 /// screen edge instead. Push the result into the overlay frame's `labels`. A
 /// consumer that wants full control can ignore this and build its own
 /// [`LabelItem`] from the same text.
-pub fn build_numeric_label(style: &GizmoStyle, text: &str, gizmo_center: Vec3) -> LabelItem {
+pub fn build_numeric_label(style: &GizmoStyle, text: &str, gizmo_centre: Vec3) -> LabelItem {
     // A World anchor follows the gizmo: swap the style's placeholder position for
     // the live centre. A Viewport anchor is used as-is.
     let anchor = match style.label_anchor {
-        OverlayOrigin::World(_) => OverlayOrigin::World(gizmo_center.as_dvec3()),
+        OverlayOrigin::World(_) => OverlayOrigin::World(gizmo_centre.as_dvec3()),
         other => other,
     };
     let mut label = LabelItem::new(text)
@@ -76,7 +76,7 @@ struct Out<'a> {
 /// * `forward` : camera forward direction in world space (for arrow-head foreshortening).
 /// * `viewport` : viewport size in logical pixels `[w, h]`.
 /// * `centre_world` : gizmo centre (the selected object's pivot) in world space.
-/// * `scale` : world-space arm length from [`gizmo::compute_gizmo_scale`](crate::maths::gizmo::compute_gizmo_scale).
+/// * `scale` : world-space arm length from [`gizmo_scale_for_camera`](crate::maths::gizmo::gizmo_scale_for_camera).
 /// * `hovered` : the axis under the cursor, brightened in the output.
 /// * `space_orientation` : identity for world space, the object orientation for local space.
 ///

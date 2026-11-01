@@ -130,7 +130,7 @@ impl Rig {
             viewport_size: VP,
             cursor_viewport: cursor,
             pointer_delta,
-            selection_center: self.centre,
+            selection_centre: self.centre,
             selection_orientation: self.orientation,
             drag_started,
             dragging: self.button_down,

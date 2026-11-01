@@ -9,11 +9,9 @@ use super::types::{ManipulationKind, ManipulationState};
 
 /// Buffers numeric input from the keyboard during a manipulation session.
 ///
-/// Activated when the user types a digit during an active session.
-/// Each active axis gets its own string buffer.
-///
-/// Fields and methods are unused until `Action::NumericDigit/Backspace/Tab` are added.
-#[allow(dead_code)]
+/// Activated when the user types a digit, sign or point during an active
+/// session. Each active axis gets its own string buffer; `NumericNextAxis`
+/// moves between them and `NumericBackspace` erases.
 #[derive(Debug, Clone)]
 pub(crate) struct NumericInputState {
     /// Which axis indices are accepting input (depends on constraint).
@@ -24,7 +22,6 @@ pub(crate) struct NumericInputState {
     pub(crate) axis_inputs: [String; 3],
 }
 
-#[allow(dead_code)]
 impl NumericInputState {
     /// Create a new numeric input state for the given axis constraint.
     pub(crate) fn new(axis: Option<GizmoAxis>, excluded: bool) -> Self {
@@ -104,8 +101,8 @@ pub(crate) struct ManipulationSession {
     pub(crate) numeric: Option<NumericInputState>,
     /// Whether this session began from a gizmo drag.
     pub(crate) is_gizmo_drag: bool,
-    /// World-space center captured when the session began.
-    pub(crate) gizmo_center: glam::Vec3,
+    /// World-space centre captured when the session began.
+    pub(crate) gizmo_centre: glam::Vec3,
     /// The orientation the constraint axes are turned by: identity in world
     /// space, the object's orientation in local space. Captured when the
     /// session began.
@@ -146,7 +143,7 @@ impl Default for ManipulationSession {
             exclude_axis: false,
             numeric: None,
             is_gizmo_drag: false,
-            gizmo_center: glam::Vec3::ZERO,
+            gizmo_centre: glam::Vec3::ZERO,
             orientation: glam::Quat::IDENTITY,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
@@ -171,7 +168,7 @@ impl ManipulationSession {
             axis: self.axis,
             exclude_axis: self.exclude_axis,
             is_gizmo_drag: self.is_gizmo_drag,
-            center: self.gizmo_center,
+            centre: self.gizmo_centre,
             numeric_display,
         }
     }
@@ -364,7 +361,7 @@ mod tests {
             exclude_axis: false,
             numeric: None,
             is_gizmo_drag: false,
-            gizmo_center: glam::Vec3::ZERO,
+            gizmo_centre: glam::Vec3::ZERO,
             orientation: glam::Quat::IDENTITY,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
@@ -384,7 +381,7 @@ mod tests {
             exclude_axis: false,
             numeric: None,
             is_gizmo_drag: false,
-            gizmo_center: glam::Vec3::ZERO,
+            gizmo_centre: glam::Vec3::ZERO,
             orientation: glam::Quat::IDENTITY,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
@@ -404,7 +401,7 @@ mod tests {
             exclude_axis: false,
             numeric: Some(NumericInputState::new(Some(GizmoAxis::X), false)),
             is_gizmo_drag: false,
-            gizmo_center: glam::Vec3::ZERO,
+            gizmo_centre: glam::Vec3::ZERO,
             orientation: glam::Quat::IDENTITY,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,

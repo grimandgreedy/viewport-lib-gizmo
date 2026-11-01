@@ -28,7 +28,7 @@ use vpl::input::adapters::winit as vpl_winit;
 use vpl::scene::Scene;
 use vpl::{
     Action, AppConfig, BindingPreset, BlitTexture, ButtonState, Camera, CameraFrame, Colour,
-    FrameData, KeyCode, LabelItem, Material, ModifiersMatch, NodeId, OffscreenViewportTarget,
+    FrameData, LabelItem, Material, ModifiersMatch, NodeId, OffscreenViewportTarget,
     OrbitCameraController, SceneFrame, Selection, ViewportBinding, ViewportContext, ViewportEvent,
     ViewportGesture, ViewportId, ViewportInput, WindowConfig, primitives,
     viewport_default_bindings,
@@ -129,18 +129,24 @@ fn apply_delta(delta: &TransformDelta, pivot: Vec3, base: Mat4, values: ValueMod
     m
 }
 
-/// The default bindings, with Q also cycling the gizmo mode. Tab already does,
-/// and Q is bound by the character it types so it is the key labelled Q on any
-/// layout.
+/// Toggles relative / objective values. The example's own shortcut, so a
+/// `Custom` action: the value means nothing to the library.
+const TOGGLE_VALUE_MODE: Action = Action::Custom(1);
+
+/// The default bindings, with Q also cycling the gizmo mode (Tab already does)
+/// and backtick toggling the value mode. Both are bound by the character they
+/// type, so they are the keys labelled Q and ` on any layout.
 fn gizmo_bindings() -> Vec<ViewportBinding> {
+    let char_press = |ch| ViewportGesture::CharPress {
+        ch,
+        modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
+    };
     let mut bindings = viewport_default_bindings();
     bindings.push(ViewportBinding::new(
         Action::CycleGizmoMode,
-        ViewportGesture::CharPress {
-            ch: 'q',
-            modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
-        },
+        char_press('q'),
     ));
+    bindings.push(ViewportBinding::new(TOGGLE_VALUE_MODE, char_press('`')));
     bindings
 }
 
@@ -273,13 +279,6 @@ fn main() {
                             s.button_held = *state == ButtonState::Pressed;
                         }
                         ViewportEvent::FocusLost => s.button_held = false,
-                        // Backtick toggles relative / objective values.
-                        ViewportEvent::Key {
-                            key: KeyCode::Backtick,
-                            state: ButtonState::Pressed,
-                            repeat: false,
-                            ..
-                        } if active.is_some() => s.driver.toggle_value_mode(),
                         _ => {}
                     }
                 }
@@ -287,6 +286,9 @@ fn main() {
                 // where Tab advances the numeric axis instead.
                 if active.is_some() && action.is_active(Action::CycleGizmoMode) {
                     s.driver.cycle_mode();
+                }
+                if active.is_some() && action.is_active(TOGGLE_VALUE_MODE) {
+                    s.driver.toggle_value_mode();
                 }
 
                 // Navigation. Only the driving view owns the input; every view is
@@ -319,25 +321,18 @@ fn main() {
                 // cursor.
                 let driver_view = active.unwrap_or(0);
                 let was_grabbing = s.grabbing;
-                let actions = &action;
-                let pointer = actions.pointer;
                 let centre = s.current.col(3).truncate();
-                let result = s.driver.update(FrameInput {
-                    action_frame: actions,
-                    camera: &s.views[driver_view].camera,
-                    viewport_size: logical[driver_view].1,
-                    cursor_viewport: if active.is_some() {
-                        pointer.cursor.map(|c| c - logical[driver_view].0)
-                    } else {
-                        None
-                    },
-                    pointer_delta: pointer.delta,
-                    selection_center: Some(centre),
-                    selection_orientation: glam::Quat::IDENTITY,
-                    drag_started: pointer.pressed,
-                    dragging: pointer.dragging,
-                    clicked: pointer.clicked,
-                });
+                let mut input = FrameInput::from_action(
+                    &action,
+                    &s.views[driver_view].camera,
+                    logical[driver_view].1,
+                    Some(centre),
+                );
+                input.cursor_viewport = match active {
+                    Some(_) => input.cursor_viewport.map(|c| c - logical[driver_view].0),
+                    None => None,
+                };
+                let result = s.driver.update(input);
                 match result {
                     ManipResult::Update(delta) => {
                         // The delta is the total since the drag began, so it composes
@@ -359,7 +354,7 @@ fn main() {
                 // The views' ownership for this frame was decided last frame, so a
                 // press the gizmo takes with no hover frame before it (a touch, or a
                 // move and press in one frame) has already armed that view's drag.
-                if pointer.pressed && (was_grabbing || s.grabbing) {
+                if action.pointer.pressed && (was_grabbing || s.grabbing) {
                     s.views[driver_view].input.cancel_gesture();
                 }
                 s.active

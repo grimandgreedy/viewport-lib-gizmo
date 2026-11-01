@@ -1,4 +1,8 @@
-//! Public types for the manipulation controller: kinds, results, state, and context.
+//! Public types for the manipulation controller: kinds, results, state, and input.
+
+use glam::{Quat, Vec2, Vec3};
+use viewport_lib_types::camera::Camera;
+use viewport_lib_types::input::ActionFrame;
 
 use crate::maths::gizmo::{GizmoAxis, GizmoMode};
 
@@ -123,8 +127,8 @@ pub struct ManipulationState {
     pub exclude_axis: bool,
     /// Whether the session began from a gizmo drag (vs keyboard G/R/S).
     pub is_gizmo_drag: bool,
-    /// World-space center of the manipulation (selection centroid at session start).
-    pub center: glam::Vec3,
+    /// World-space centre of the manipulation (selection centroid at session start).
+    pub centre: glam::Vec3,
     /// Numeric input display string for HUD rendering, e.g. "X: 2.50 Y: _ Z: _".
     pub numeric_display: Option<String>,
 }
@@ -134,8 +138,8 @@ pub struct ManipulationState {
 /// Pass `None` to skip gizmo drag detection.
 #[derive(Debug, Clone, Copy)]
 pub struct GizmoInfo {
-    /// World-space center of the gizmo.
-    pub center: glam::Vec3,
+    /// World-space centre of the gizmo.
+    pub centre: glam::Vec3,
     /// World-space arm length (screen-size scale factor).
     pub scale: f32,
     /// Gizmo orientation (for local-space gizmos).
@@ -144,27 +148,79 @@ pub struct GizmoInfo {
     pub mode: GizmoMode,
 }
 
-/// Everything the manipulation controller needs to run one frame.
-#[derive(Clone)]
-pub struct ManipulationContext {
-    /// Current camera state.
-    pub camera: viewport_lib_types::camera::Camera,
-    /// Viewport size in pixels.
-    pub viewport_size: glam::Vec2,
-    /// Cursor position in viewport-local pixels. `None` if outside viewport.
-    pub cursor_viewport: Option<glam::Vec2>,
-    /// Mouse movement in pixels since last frame.
-    pub pointer_delta: glam::Vec2,
-    /// World-space center of the current selection. `None` disables G/R/S and gizmo drag.
-    pub selection_center: Option<glam::Vec3>,
-    /// Gizmo state for this frame. `None` disables gizmo drag detection.
-    pub gizmo: Option<GizmoInfo>,
-    /// `true` on the frame a primary drag begins.
+/// The per-frame input the controller and the [`GizmoDriver`](super::GizmoDriver)
+/// read.
+///
+/// `selection_centre` is the world-space gizmo pivot, which the consumer computes
+/// from its selection (for example with
+/// [`gizmo_centre_for_pivot`](crate::maths::gizmo::gizmo_centre_for_pivot) and
+/// [`GizmoDriver::pivot_mode`](super::GizmoDriver::pivot_mode)). The pointer
+/// fields come from the consumer's pointer handling; [`from_action`](Self::from_action)
+/// reads them from the resolved input.
+#[derive(Clone, Copy)]
+pub struct FrameInput<'a> {
+    /// The resolved input for this frame.
+    pub action_frame: &'a ActionFrame,
+    /// The viewport camera.
+    pub camera: &'a Camera,
+    /// Viewport size in logical pixels.
+    pub viewport_size: Vec2,
+    /// Cursor position in viewport pixels (top-left origin), or `None` if outside.
+    pub cursor_viewport: Option<Vec2>,
+    /// Pointer movement since the last frame, in pixels.
+    pub pointer_delta: Vec2,
+    /// World-space centre of the selection. `None` hides the gizmo, and ends a
+    /// session in progress with [`ManipResult::Cancel`].
+    pub selection_centre: Option<Vec3>,
+    /// The selection's orientation (for one object, its rotation). In local
+    /// space the handles are drawn, picked and dragged along its axes; world
+    /// space ignores it. Pass `Quat::IDENTITY` if you only use world space.
+    pub selection_orientation: Quat,
+    /// True on the frame the primary button goes down.
     pub drag_started: bool,
-    /// `true` while a primary drag is ongoing.
+    /// True while the primary button is held.
     pub dragging: bool,
-    /// `true` on a primary click-without-drag.
+    /// True on a completed click.
     pub clicked: bool,
+}
+
+impl<'a> FrameInput<'a> {
+    /// A frame read from resolved viewport input: the cursor, pointer delta and
+    /// primary-button state come from `action_frame.pointer`, and the selection
+    /// is in world space (see
+    /// [`with_selection_orientation`](Self::with_selection_orientation)).
+    ///
+    /// A tap confirms a keyboard session like a click. Touch reports no button,
+    /// so a touch drag on a handle needs the host to set
+    /// [`drag_started`](Self::drag_started) and [`dragging`](Self::dragging)
+    /// itself.
+    pub fn from_action(
+        action_frame: &'a ActionFrame,
+        camera: &'a Camera,
+        viewport_size: Vec2,
+        selection_centre: Option<Vec3>,
+    ) -> Self {
+        let p = &action_frame.pointer;
+        Self {
+            action_frame,
+            camera,
+            viewport_size,
+            cursor_viewport: p.cursor.or(p.touch_position),
+            pointer_delta: p.delta,
+            selection_centre,
+            selection_orientation: Quat::IDENTITY,
+            drag_started: p.pressed,
+            dragging: p.dragging,
+            clicked: p.clicked || p.tapped,
+        }
+    }
+
+    /// The same frame with the selection turned to `orientation`, for local
+    /// space.
+    pub fn with_selection_orientation(mut self, orientation: Quat) -> Self {
+        self.selection_orientation = orientation;
+        self
+    }
 }
 
 #[cfg(test)]

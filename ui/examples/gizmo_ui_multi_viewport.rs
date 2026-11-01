@@ -29,10 +29,9 @@ use vpl::input::adapters::winit as vpl_winit;
 use vpl::scene::Scene;
 use vpl::{
     Action, AppConfig, BindingPreset, BlitTexture, ButtonState, Camera, CameraFrame, FrameData,
-    KeyCode, LabelItem, Material, ModifiersMatch, NodeId, OffscreenViewportTarget,
-    OrbitCameraController, SceneFrame, Selection, ViewportBinding, ViewportContext, ViewportEvent,
-    ViewportGesture, ViewportId, ViewportInput, WindowConfig, primitives,
-    viewport_default_bindings,
+    LabelItem, Material, ModifiersMatch, NodeId, OffscreenViewportTarget, OrbitCameraController,
+    SceneFrame, Selection, ViewportBinding, ViewportContext, ViewportEvent, ViewportGesture,
+    ViewportId, ViewportInput, WindowConfig, primitives, viewport_default_bindings,
 };
 
 use viewport_lib_ui::{
@@ -158,18 +157,24 @@ fn apply(delta: &GizmoDelta, pivot: Vec3, base: Mat4, values: ValueMode) -> Mat4
     m
 }
 
-/// The default bindings, with Q also cycling the gizmo mode. Tab already does,
-/// and Q is bound by the character it types so it is the key labelled Q on any
-/// layout.
+/// Toggles relative / objective values. The example's own shortcut, so a
+/// `Custom` action: the value means nothing to the library.
+const TOGGLE_VALUE_MODE: Action = Action::Custom(1);
+
+/// The default bindings, with Q also cycling the gizmo mode (Tab already does)
+/// and backtick toggling the value mode. Both are bound by the character they
+/// type, so they are the keys labelled Q and ` on any layout.
 fn gizmo_bindings() -> Vec<ViewportBinding> {
+    let char_press = |ch| ViewportGesture::CharPress {
+        ch,
+        modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
+    };
     let mut bindings = viewport_default_bindings();
     bindings.push(ViewportBinding::new(
         Action::CycleGizmoMode,
-        ViewportGesture::CharPress {
-            ch: 'q',
-            modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
-        },
+        char_press('q'),
     ));
+    bindings.push(ViewportBinding::new(TOGGLE_VALUE_MODE, char_press('`')));
     bindings
 }
 
@@ -314,14 +319,11 @@ fn main() {
                             s.button_held = *state == ButtonState::Pressed;
                         }
                         ViewportEvent::FocusLost => s.button_held = false,
-                        ViewportEvent::Key {
-                            key: KeyCode::Backtick,
-                            state: ButtonState::Pressed,
-                            repeat: false,
-                            ..
-                        } => tool.set_value_mode(tool.value_mode().toggled()),
                         _ => {}
                     }
+                }
+                if action.is_active(TOGGLE_VALUE_MODE) {
+                    tool.set_value_mode(tool.value_mode().toggled());
                 }
                 // Tab or Q cycles the mode, except during a session, where Tab
                 // advances the numeric axis instead.

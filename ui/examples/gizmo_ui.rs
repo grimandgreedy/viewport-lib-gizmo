@@ -30,14 +30,14 @@ use std::sync::Arc;
 use glam::{Mat4, Quat, Vec3};
 use viewport_lib as vpl;
 use vpl::{
-    Action, AppConfig, BindingPreset, ButtonState, InputOwnership, KeyCode, KeyboardOwnership,
-    Material, ModifiersMatch, NodeId, OrbitCameraController, PointerOwnership, ViewportApp,
-    ViewportBinding, ViewportContext, ViewportEvent, ViewportGesture, ViewportInput, WindowConfig,
-    primitives, viewport_default_bindings,
+    Action, AppConfig, BindingPreset, InputOwnership, KeyboardOwnership, Material, ModifiersMatch,
+    NodeId, OrbitCameraController, PointerOwnership, ViewportApp, ViewportBinding, ViewportContext,
+    ViewportEvent, ViewportGesture, ViewportInput, WindowConfig, primitives,
+    viewport_default_bindings,
 };
 
 use viewport_lib_ui::{
-    Anchor, Colour, Cursor, Frame, HostMap, HostSources, InputTranslator, Layout, Screen,
+    Alignment, Colour, Cursor, Frame, HostMap, HostSources, InputTranslator, Layout, Screen,
     ShapedTextMeasurer, Theme, ThemeMode, UiEvent, UiState, Value, Visibility, Widget, WidgetKind,
     WidgetRegistry, custom_output, extend_frame, map_cursor, roles, serde_json,
 };
@@ -58,18 +58,27 @@ const READOUT: u32 = 12;
 const MODE_SEG: u32 = 13;
 const MODE_BADGE: u32 = 14;
 
-/// The default bindings, with Q also cycling the gizmo mode. Tab already does,
-/// and Q is bound by the character it types so it is the key labelled Q on any
-/// layout.
+/// The example's own shortcuts, as `Custom` actions: the values mean nothing to
+/// the library. Backtick toggles relative / objective values; H cycles when the
+/// readout shows.
+const TOGGLE_VALUE_MODE: Action = Action::Custom(1);
+const CYCLE_READOUT: Action = Action::Custom(2);
+
+/// The default bindings, with Q also cycling the gizmo mode (Tab already does),
+/// plus the example's backtick and H. All are bound by the character they type,
+/// so they are the keys labelled Q, ` and H on any layout.
 fn gizmo_bindings() -> Vec<ViewportBinding> {
+    let char_press = |ch| ViewportGesture::CharPress {
+        ch,
+        modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
+    };
     let mut bindings = viewport_default_bindings();
     bindings.push(ViewportBinding::new(
         Action::CycleGizmoMode,
-        ViewportGesture::CharPress {
-            ch: 'q',
-            modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
-        },
+        char_press('q'),
     ));
+    bindings.push(ViewportBinding::new(TOGGLE_VALUE_MODE, char_press('`')));
+    bindings.push(ViewportBinding::new(CYCLE_READOUT, char_press('h')));
     bindings
 }
 
@@ -114,7 +123,7 @@ fn dark_theme() -> Theme {
 /// Build the screen: a full-viewport gizmo pane under a small readout panel.
 fn build_screen() -> Screen {
     let gizmo = Widget::custom(GIZMO_PANE, GIZMO_KIND, serde_json::Value::Null).placed(
-        Anchor::TopLeft,
+        Alignment::TOP_LEFT,
         [0.0, 0.0],
         [1280.0, 720.0],
     );
@@ -132,7 +141,7 @@ fn build_screen() -> Screen {
         GizmoMode::Translate,
         ValueMode::Relative,
     )
-    .placed(Anchor::BottomCentre, [0.0, -16.0], [0.0, 0.0]);
+    .placed(Alignment::BOTTOM_CENTRE, [0.0, -16.0], [0.0, 0.0]);
 
     // The gizmo pane is first so the panel paints over it and wins the pointer where
     // they overlap.
@@ -268,36 +277,6 @@ fn main() {
                     // only when vpl-ui did not capture the pointer last frame.
                     let mut ui_events = Vec::with_capacity(raw.len());
                     for ev in &raw {
-                        if let ViewportEvent::Key {
-                            key,
-                            state: ButtonState::Pressed,
-                            repeat: false,
-                            ..
-                        } = ev
-                        {
-                            let a = app.borrow();
-                            match key {
-                                KeyCode::Backtick => {
-                                    a.tool.set_value_mode(a.tool.value_mode().toggled())
-                                }
-                                KeyCode::H => {
-                                    // Cycle the readout: always shown, shown only while a drag or
-                                    // a keyboard session is running, hidden.
-                                    let tool = &a.tool;
-                                    match (tool.show_readout(), tool.readout_when()) {
-                                        (true, ReadoutWhen::Always) => {
-                                            tool.set_readout_when(ReadoutWhen::WhileActive)
-                                        }
-                                        (true, _) => tool.set_show_readout(false),
-                                        _ => {
-                                            tool.set_show_readout(true);
-                                            tool.set_readout_when(ReadoutWhen::Always);
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
                         ictx.forward(ev.clone());
 
                         // The only thing the gizmo (or a panel) consumes is the left-button
@@ -331,6 +310,26 @@ fn main() {
                             _ => GizmoMode::Translate,
                         };
                         a.tool.set_mode(next);
+                    }
+                    if action.is_active(TOGGLE_VALUE_MODE) {
+                        let a = app.borrow();
+                        a.tool.set_value_mode(a.tool.value_mode().toggled());
+                    }
+                    if action.is_active(CYCLE_READOUT) {
+                        // Cycle the readout: always shown, shown only while a drag or a
+                        // keyboard session is running, hidden.
+                        let a = app.borrow();
+                        let tool = &a.tool;
+                        match (tool.show_readout(), tool.readout_when()) {
+                            (true, ReadoutWhen::Always) => {
+                                tool.set_readout_when(ReadoutWhen::WhileActive)
+                            }
+                            (true, _) => tool.set_show_readout(false),
+                            _ => {
+                                tool.set_show_readout(true);
+                                tool.set_readout_when(ReadoutWhen::Always);
+                            }
+                        }
                     }
                     let input = translator.frame(&ui_events);
                     let measure = ShapedTextMeasurer::new(ictx.resources(), no_fonts);

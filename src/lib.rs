@@ -24,7 +24,7 @@
 //! axis, plane, or rotation ([`project_drag_onto_axis`], [`project_drag_onto_plane`],
 //! [`project_drag_onto_rotation`], [`project_drag_onto_screen_plane`]), size the
 //! gizmo for the screen ([`gizmo_scale_for_camera`], or [`compute_gizmo_scale`]
-//! for a perspective camera), resolve the pivot centre ([`gizmo_center_for_pivot`],
+//! for a perspective camera), resolve the pivot centre ([`gizmo_centre_for_pivot`],
 //! [`PivotMode`]), hit-test the handles ([`Gizmo`]), turn a cursor into a world
 //! ray ([`cursor_ray`]), and snap a value ([`snap_value`] and friends).
 
@@ -35,7 +35,7 @@ pub mod overlay;
 // Layer 1: the build-your-own-gizmo maths surface.
 pub use maths::gizmo::{
     Gizmo, GizmoAxis, GizmoMode, GizmoSpace, PivotMode, ROTATION_RING_RADIUS, compute_gizmo_scale,
-    cursor_ray, gizmo_center_for_pivot, gizmo_center_from_selection, gizmo_scale_for_camera,
+    cursor_ray, gizmo_centre_for_pivot, gizmo_centre_from_selection, gizmo_scale_for_camera,
     project_drag_onto_axis, project_drag_onto_plane, project_drag_onto_rotation,
     project_drag_onto_screen_plane,
 };
@@ -55,6 +55,6 @@ pub use viewport_lib_types::overlay::{AnchorX, AnchorY, OverlayOrigin};
 
 // Layer 3: the controller and the per-frame driver.
 pub use controller::{
-    ActiveView, FrameInput, GizmoDriver, GizmoInfo, ManipResult, ManipulationContext,
-    ManipulationController, ManipulationKind, ManipulationState, TransformDelta, ValueMode,
+    ActiveView, FrameInput, GizmoDriver, GizmoInfo, ManipResult, ManipulationController,
+    ManipulationKind, ManipulationState, TransformDelta, ValueMode,
 };

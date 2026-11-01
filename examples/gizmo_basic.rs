@@ -15,10 +15,10 @@ use std::rc::Rc;
 use glam::{Mat4, Vec2, Vec3};
 use viewport_lib as vpl;
 use vpl::{
-    Action, AppConfig, BindingPreset, ButtonState, Colour, InputOwnership, KeyCode,
-    KeyboardOwnership, Material, ModifiersMatch, NodeId, OrbitCameraController, PointerOwnership,
-    ViewportApp, ViewportBinding, ViewportContext, ViewportEvent, ViewportGesture, ViewportInput,
-    WindowConfig, primitives, viewport_default_bindings,
+    Action, AppConfig, BindingPreset, Colour, InputOwnership, KeyboardOwnership, Material,
+    ModifiersMatch, NodeId, OrbitCameraController, PointerOwnership, ViewportApp, ViewportBinding,
+    ViewportContext, ViewportGesture, ViewportInput, WindowConfig, primitives,
+    viewport_default_bindings,
 };
 
 use viewport_lib_gizmo::{
@@ -43,18 +43,24 @@ struct State {
     camera_input: ViewportInput,
 }
 
-/// The default bindings, with Q also cycling the gizmo mode. Tab already does,
-/// and Q is bound by the character it types so it is the key labelled Q on any
-/// layout.
+/// Toggles relative / objective values. The example's own shortcut, so a
+/// `Custom` action: the value means nothing to the library.
+const TOGGLE_VALUE_MODE: Action = Action::Custom(1);
+
+/// The default bindings, with Q also cycling the gizmo mode (Tab already does)
+/// and backtick toggling the value mode. Both are bound by the character they
+/// type, so they are the keys labelled Q and ` on any layout.
 fn gizmo_bindings() -> Vec<ViewportBinding> {
+    let char_press = |ch| ViewportGesture::CharPress {
+        ch,
+        modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
+    };
     let mut bindings = viewport_default_bindings();
     bindings.push(ViewportBinding::new(
         Action::CycleGizmoMode,
-        ViewportGesture::CharPress {
-            ch: 'q',
-            modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
-        },
+        char_press('q'),
     ));
+    bindings.push(ViewportBinding::new(TOGGLE_VALUE_MODE, char_press('`')));
     bindings
 }
 
@@ -150,16 +156,6 @@ fn main() {
                     s.camera_input
                         .begin_frame(ViewportContext::new(ownership, size));
                     for ev in ictx.events().to_vec() {
-                        // Backtick toggles relative / objective values.
-                        if let ViewportEvent::Key {
-                            key: KeyCode::Backtick,
-                            state: ButtonState::Pressed,
-                            repeat: false,
-                            ..
-                        } = ev
-                        {
-                            s.driver.toggle_value_mode();
-                        }
                         ictx.forward(ev.clone());
                         s.camera_input.push_event(ev);
                     }
@@ -176,13 +172,12 @@ fn main() {
                         return;
                     };
 
-                    let pointer = ctx.action_frame().pointer;
                     let viewport = ctx.viewport_size();
                     let viewport_size = Vec2::new(viewport[0], viewport[1]);
                     let camera = ctx.camera().clone();
 
                     // The gizmo sits at the object's current position.
-                    let center = s.current.col(3).truncate();
+                    let centre = s.current.col(3).truncate();
                     let was_busy = s.grabbing;
 
                     // Tab or Q cycles the gizmo mode (translate -> rotate -> scale).
@@ -191,19 +186,16 @@ fn main() {
                     if ctx.action_frame().is_active(Action::CycleGizmoMode) {
                         s.driver.cycle_mode();
                     }
+                    if ctx.action_frame().is_active(TOGGLE_VALUE_MODE) {
+                        s.driver.toggle_value_mode();
+                    }
 
-                    let result = s.driver.update(FrameInput {
-                        action_frame: ctx.action_frame(),
-                        camera: &camera,
+                    let result = s.driver.update(FrameInput::from_action(
+                        ctx.action_frame(),
+                        &camera,
                         viewport_size,
-                        cursor_viewport: pointer.cursor,
-                        pointer_delta: pointer.delta,
-                        selection_center: Some(center),
-                        selection_orientation: glam::Quat::IDENTITY,
-                        drag_started: pointer.pressed,
-                        dragging: pointer.dragging,
-                        clicked: pointer.clicked,
-                    });
+                        Some(centre),
+                    ));
 
                     match result {
                         ManipResult::Update(delta) => {
@@ -222,13 +214,9 @@ fn main() {
                             s.current = s.base;
                             ctx.scene_mut().set_local_transform(node, s.current);
                         }
-                        ManipResult::None => {
-                            // Keep the snapshot current while idle so the next drag starts
-                            // from the committed pose.
-                            if !s.driver.is_active() {
-                                s.base = s.current;
-                            }
-                        }
+                        // Keep the snapshot current while idle so the next drag starts
+                        // from the committed pose.
+                        ManipResult::None if !s.driver.is_active() => s.base = s.current,
                         _ => {}
                     }
 
@@ -239,12 +227,12 @@ fn main() {
                     // The camera's ownership for this frame was decided last frame, so a
                     // press the gizmo takes with no hover frame before it (a touch, or a
                     // move and press in one frame) has already armed the camera's drag.
-                    if pointer.pressed && (was_busy || s.grabbing) {
+                    if ctx.action_frame().pointer.pressed && (was_busy || s.grabbing) {
                         s.camera_input.cancel_gesture();
                     }
 
                     // Draw the gizmo.
-                    if let Some(gizmo_center) = s.driver.gizmo_center() {
+                    if let Some(gizmo_centre) = s.driver.gizmo_centre() {
                         let scale = s.driver.gizmo_scale();
                         let view_proj = camera.proj_matrix() * camera.view_matrix();
                         let forward = camera.forward();
@@ -258,7 +246,7 @@ fn main() {
                             view_proj,
                             forward,
                             viewport,
-                            gizmo_center,
+                            gizmo_centre,
                             scale,
                             hovered,
                             glam::Quat::IDENTITY,
@@ -269,7 +257,7 @@ fn main() {
                         if let Some(text) = s.driver.readout() {
                             overlays
                                 .labels
-                                .push(build_numeric_label(&style, &text, gizmo_center));
+                                .push(build_numeric_label(&style, &text, gizmo_centre));
                         }
                     }
                 }

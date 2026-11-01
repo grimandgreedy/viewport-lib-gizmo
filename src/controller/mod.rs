@@ -6,7 +6,7 @@
 //! let mut manip = ManipulationController::new();
 //!
 //! // Each frame:
-//! let result = manip.update(&frame, ManipulationContext { ... });
+//! let result = manip.update(FrameInput::from_action(&frame, &camera, size, centre), gizmo_info);
 //! match result {
 //!     ManipResult::Update(delta) => { /* apply delta to selected objects */ }
 //!     ManipResult::Commit        => { /* finalize / push undo */ }
@@ -28,7 +28,7 @@ mod views;
 
 mod session;
 
-pub use driver::{FrameInput, GizmoDriver};
+pub use driver::GizmoDriver;
 pub use types::*;
 pub use views::ActiveView;
 
@@ -36,7 +36,7 @@ use crate::maths::gizmo::{Gizmo, GizmoAxis, GizmoMode, GizmoSpace};
 use crate::maths::snap::{SnapConfig, snap_value, snap_vec3};
 use crate::maths::solvers;
 use session::{ManipulationSession, update_constraint, update_numeric_state};
-use viewport_lib_types::input::{Action, ActionFrame};
+use viewport_lib_types::input::Action;
 
 /// Manages a single object-manipulation session (G/R/S + axis constraints + gizmo drag).
 ///
@@ -81,15 +81,21 @@ impl ManipulationController {
     ///
     /// Priority order:
     /// 1. Confirm (Enter, or left-click while not a gizmo drag) -> [`ManipResult::Commit`]
-    /// 2. Cancel (Escape, or the selection going away: `selection_center` is
+    /// 2. Cancel (Escape, or the selection going away: `selection_centre` is
     ///    `None`) -> [`ManipResult::Cancel`]
     /// 3. Gizmo drag release -> [`ManipResult::Commit`]
     /// 4. Update constraints and numeric input
     /// 5. Compute and return [`ManipResult::Update`]
     /// 6. Gizmo drag start -> begins session, returns [`ManipResult::None`] this frame
-    /// 7. G/R/S keys (when `selection_center` is `Some`) -> begins session
+    /// 7. G/R/S keys (when `selection_centre` is `Some`) -> begins session
     /// 8. Otherwise -> [`ManipResult::None`]
-    pub fn update(&mut self, frame: &ActionFrame, ctx: ManipulationContext) -> ManipResult {
+    ///
+    /// `gizmo` is the gizmo's centre, scale, orientation and mode this frame, for
+    /// starting a drag on a handle; `None` turns handle drags off and leaves the
+    /// G / R / S keys. [`GizmoDriver`] fills it in itself.
+    pub fn update(&mut self, input: FrameInput, gizmo: Option<GizmoInfo>) -> ManipResult {
+        let frame = input.action_frame;
+        let ctx = &input;
         let snap = self.snap.clone();
         if let Some(ref mut session) = self.session {
             // 1. Confirm: Enter key, or left-click when not a gizmo drag.
@@ -100,7 +106,7 @@ impl ManipulationController {
             }
 
             // 2. Cancel: Escape key, or nothing left to manipulate.
-            if frame.is_active(Action::Cancel) || ctx.selection_center.is_none() {
+            if frame.is_active(Action::Cancel) || ctx.selection_centre.is_none() {
                 self.session = None;
                 return ManipResult::Cancel;
             }
@@ -194,8 +200,8 @@ impl ManipulationController {
                                 session.axis,
                                 session.exclude_axis,
                                 session.orientation,
-                                session.gizmo_center,
-                                &ctx.camera,
+                                session.gizmo_centre,
+                                ctx.camera,
                                 ctx.viewport_size,
                             )
                         }
@@ -209,8 +215,8 @@ impl ManipulationController {
                                 session.axis,
                                 session.exclude_axis,
                                 session.orientation,
-                                session.gizmo_center,
-                                &ctx.camera,
+                                session.gizmo_centre,
+                                ctx.camera,
                                 ctx.viewport_size,
                             )
                         }
@@ -250,12 +256,12 @@ impl ManipulationController {
                             session.cumulative_rotation = frame_rot * session.cumulative_rotation;
                             session.cumulative_rotation
                         } else {
-                            // Constrained to a single axis: angular sweep around screen center.
+                            // Constrained to a single axis: angular sweep around screen centre.
                             let axis_world = session.orientation * solvers::gizmo_axis_to_vec3(ax);
                             let angle = solvers::angular_rotation_from_cursor(
                                 ctx.cursor_viewport,
                                 pointer_delta,
-                                session.gizmo_center,
+                                session.gizmo_centre,
                                 axis_world,
                                 view_proj,
                                 ctx.viewport_size,
@@ -283,7 +289,7 @@ impl ManipulationController {
                             Some(_) => solvers::angular_rotation_from_cursor(
                                 ctx.cursor_viewport,
                                 pointer_delta,
-                                session.gizmo_center,
+                                session.gizmo_centre,
                                 toward_camera,
                                 view_proj,
                                 ctx.viewport_size,
@@ -305,8 +311,8 @@ impl ManipulationController {
 
                 ManipulationKind::Scale => {
                     // Project the pivot into viewport-pixel space.
-                    let ndc = view_proj.project_point3(session.gizmo_center);
-                    let center_screen = glam::Vec2::new(
+                    let ndc = view_proj.project_point3(session.gizmo_centre);
+                    let centre_screen = glam::Vec2::new(
                         (ndc.x + 1.0) * 0.5 * ctx.viewport_size.x,
                         (1.0 - ndc.y) * 0.5 * ctx.viewport_size.y,
                     );
@@ -319,8 +325,8 @@ impl ManipulationController {
                     // SCALE_MIN_REFERENCE_PX instead.
                     let cumulative = match (ctx.cursor_viewport, session.cursor_anchor) {
                         (Some(cursor), Some(anchor)) => {
-                            let dist_anchor = (anchor - center_screen).length();
-                            let dist_now = (cursor - center_screen).length();
+                            let dist_anchor = (anchor - centre_screen).length();
+                            let dist_now = (cursor - centre_screen).length();
                             let reference = dist_anchor.max(SCALE_MIN_REFERENCE_PX);
                             (1.0 + (dist_now - dist_anchor) / reference).max(0.001)
                         }
@@ -365,12 +371,12 @@ impl ManipulationController {
 
         // 6. Gizmo drag start.
         if ctx.drag_started {
-            if let (Some(gizmo_info), Some(center), Some(cursor)) =
-                (&ctx.gizmo, ctx.selection_center, ctx.cursor_viewport)
+            if let (Some(gizmo_info), Some(centre), Some(cursor)) =
+                (&gizmo, ctx.selection_centre, ctx.cursor_viewport)
             {
                 // Build a ray from the cursor position.
                 let (ray_origin, ray_dir) =
-                    crate::maths::gizmo::cursor_ray(&ctx.camera, cursor, ctx.viewport_size);
+                    crate::maths::gizmo::cursor_ray(ctx.camera, cursor, ctx.viewport_size);
 
                 // `GizmoInfo::orientation` is already resolved for the space
                 // (identity in world space), so pick in it as given.
@@ -385,7 +391,7 @@ impl ManipulationController {
                 let hit = temp_gizmo.hit_test_oriented(
                     ray_origin,
                     ray_dir,
-                    gizmo_info.center,
+                    gizmo_info.centre,
                     gizmo_info.scale,
                     gizmo_info.orientation,
                 );
@@ -403,7 +409,7 @@ impl ManipulationController {
                         exclude_axis,
                         numeric: None,
                         is_gizmo_drag: true,
-                        gizmo_center: center,
+                        gizmo_centre: centre,
                         orientation: gizmo_info.orientation,
                         cursor_anchor: ctx.cursor_viewport,
                         cursor_last_total: glam::Vec2::ZERO,
@@ -416,7 +422,7 @@ impl ManipulationController {
         }
 
         // 7. G/R/S keyboard shortcuts.
-        if let Some(center) = ctx.selection_center {
+        if let Some(centre) = ctx.selection_centre {
             let kind = if frame.is_active(Action::BeginMove) {
                 Some(ManipulationKind::Move)
             } else if frame.is_active(Action::BeginRotate) {
@@ -434,9 +440,9 @@ impl ManipulationController {
                     exclude_axis: false,
                     numeric: None,
                     is_gizmo_drag: false,
-                    gizmo_center: center,
+                    gizmo_centre: centre,
                     // Constraint keys work in the gizmo's space.
-                    orientation: ctx.gizmo.map_or(glam::Quat::IDENTITY, |g| g.orientation),
+                    orientation: gizmo.map_or(glam::Quat::IDENTITY, |g| g.orientation),
                     cursor_anchor: ctx.cursor_viewport,
                     cursor_last_total: glam::Vec2::ZERO,
                     cumulative_scale: 1.0,
@@ -467,7 +473,7 @@ impl ManipulationController {
     /// Force-begin a manipulation (e.g. from a UI button).
     ///
     /// No-op if a session is already active.
-    pub fn begin(&mut self, kind: ManipulationKind, center: glam::Vec3) {
+    pub fn begin(&mut self, kind: ManipulationKind, centre: glam::Vec3) {
         if self.session.is_some() {
             return;
         }
@@ -477,7 +483,7 @@ impl ManipulationController {
             exclude_axis: false,
             numeric: None,
             is_gizmo_drag: false,
-            gizmo_center: center,
+            gizmo_centre: centre,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
             cumulative_scale: 1.0,
@@ -541,15 +547,46 @@ mod tests {
         viewport_lib_types::camera::Camera::default()
     }
 
+    /// One frame's input, owning its camera so a test can build and tweak it in
+    /// one place.
+    struct Ctx {
+        camera: viewport_lib_types::camera::Camera,
+        viewport_size: glam::Vec2,
+        cursor_viewport: Option<glam::Vec2>,
+        pointer_delta: glam::Vec2,
+        selection_centre: Option<glam::Vec3>,
+        gizmo: Option<GizmoInfo>,
+        drag_started: bool,
+        dragging: bool,
+        clicked: bool,
+    }
+
+    /// Run the controller for one frame of `ctx`.
+    fn run(ctrl: &mut ManipulationController, frame: &ActionFrame, ctx: Ctx) -> ManipResult {
+        let input = FrameInput {
+            action_frame: frame,
+            camera: &ctx.camera,
+            viewport_size: ctx.viewport_size,
+            cursor_viewport: ctx.cursor_viewport,
+            pointer_delta: ctx.pointer_delta,
+            selection_centre: ctx.selection_centre,
+            selection_orientation: glam::Quat::IDENTITY,
+            drag_started: ctx.drag_started,
+            dragging: ctx.dragging,
+            clicked: ctx.clicked,
+        };
+        ctrl.update(input, ctx.gizmo)
+    }
+
     /// A frame with no pointer input and a selection at the origin. A session
     /// cancels without a selection, so tests that drive one need it.
-    fn idle_ctx() -> ManipulationContext {
-        ManipulationContext {
+    fn idle_ctx() -> Ctx {
+        Ctx {
             camera: make_camera(),
             viewport_size: glam::Vec2::new(800.0, 600.0),
             cursor_viewport: None,
             pointer_delta: glam::Vec2::ZERO,
-            selection_center: Some(glam::Vec3::ZERO),
+            selection_centre: Some(glam::Vec3::ZERO),
             gizmo: None,
             drag_started: false,
             dragging: false,
@@ -569,7 +606,7 @@ mod tests {
             exclude_axis: false,
             numeric: None,
             is_gizmo_drag: false,
-            gizmo_center: glam::Vec3::ZERO,
+            gizmo_centre: glam::Vec3::ZERO,
             cursor_anchor: None,
             cursor_last_total: glam::Vec2::ZERO,
             cumulative_scale: 1.0,
@@ -593,7 +630,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Numeric parse test (deferred : Action enum lacks NumericDigit/Backspace/Tab)
+    // Numeric input
     // -----------------------------------------------------------------------
 
     #[test]
@@ -609,8 +646,8 @@ mod tests {
     #[test]
     fn numeric_input_bootstraps_on_first_digit() {
         let mut ctrl = ManipulationController::new();
-        let center = glam::Vec3::new(1.0, 0.0, 0.0);
-        ctrl.begin(ManipulationKind::Move, center);
+        let centre = glam::Vec3::new(1.0, 0.0, 0.0);
+        ctrl.begin(ManipulationKind::Move, centre);
         assert!(ctrl.is_active());
 
         // First digit: bootstrap numeric state.
@@ -618,7 +655,7 @@ mod tests {
         frame.text.push('2');
         let mut ctx = idle_ctx();
         ctx.dragging = false; // not a mouse drag
-        let result = ctrl.update(&frame, ctx);
+        let result = run(&mut ctrl, &frame, ctx);
         // Should get an Update with a zero translation (numeric override pending parse).
         assert!(matches!(result, ManipResult::Update(_)));
         let state = ctrl.state().unwrap();
@@ -636,7 +673,7 @@ mod tests {
         // Type "25".
         let mut frame = ActionFrame::default();
         frame.text.extend(['2', '5']);
-        ctrl.update(&frame, idle_ctx());
+        run(&mut ctrl, &frame, idle_ctx());
 
         // Backspace once.
         let mut frame2 = ActionFrame::default();
@@ -644,7 +681,7 @@ mod tests {
             viewport_lib_types::input::Action::NumericBackspace,
             viewport_lib_types::input::ResolvedActionState::Pressed,
         );
-        ctrl.update(&frame2, idle_ctx());
+        run(&mut ctrl, &frame2, idle_ctx());
 
         let state = ctrl.state().unwrap();
         // Should now show "2" only.
@@ -680,17 +717,17 @@ mod tests {
         // Axis = +Z, camera at +Z => axis points toward camera (axis_z_cam > 0).
         // CW screen motion (cursor sweeps CW) should produce positive world angle.
         let (camera_view, view_proj) = make_view_proj_looking_neg_z();
-        let gizmo_center = glam::Vec3::ZERO;
+        let gizmo_centre = glam::Vec3::ZERO;
         let viewport_size = glam::Vec2::new(800.0, 600.0);
 
-        // Place cursor to the right of center, move it upward (CW sweep).
-        let cursor = glam::Vec2::new(500.0, 300.0); // right of screen center
+        // Place cursor to the right of centre, move it upward (CW sweep).
+        let cursor = glam::Vec2::new(500.0, 300.0); // right of screen centre
         let pointer_delta = glam::Vec2::new(0.0, -20.0); // upward = CW for right-side cursor
 
         let angle = solvers::angular_rotation_from_cursor(
             Some(cursor),
             pointer_delta,
-            gizmo_center,
+            gizmo_centre,
             glam::Vec3::Z,
             view_proj,
             viewport_size,
@@ -706,7 +743,7 @@ mod tests {
     fn angular_rotation_neg_z_away_from_camera_cw_is_negative() {
         // Axis = -Z points away from camera.  Same CW cursor motion should give negative angle.
         let (camera_view, view_proj) = make_view_proj_looking_neg_z();
-        let gizmo_center = glam::Vec3::ZERO;
+        let gizmo_centre = glam::Vec3::ZERO;
         let viewport_size = glam::Vec2::new(800.0, 600.0);
 
         let cursor = glam::Vec2::new(500.0, 300.0);
@@ -715,7 +752,7 @@ mod tests {
         let angle = solvers::angular_rotation_from_cursor(
             Some(cursor),
             pointer_delta,
-            gizmo_center,
+            gizmo_centre,
             glam::Vec3::NEG_Z,
             view_proj,
             viewport_size,
@@ -757,23 +794,23 @@ mod tests {
     fn controller_idle_returns_none() {
         let mut ctrl = ManipulationController::new();
         let frame = ActionFrame::default();
-        let result = ctrl.update(&frame, idle_ctx());
+        let result = run(&mut ctrl, &frame, idle_ctx());
         assert_eq!(result, ManipResult::None);
         assert!(!ctrl.is_active());
     }
 
     #[test]
-    fn controller_no_session_without_selection_center() {
+    fn controller_no_session_without_selection_centre() {
         let mut ctrl = ManipulationController::new();
-        // No selection_center -> G/R/S should not start a session.
+        // No selection_centre -> G/R/S should not start a session.
         let mut frame = ActionFrame::default();
         frame.actions.insert(
             viewport_lib_types::input::Action::BeginMove,
             viewport_lib_types::input::ResolvedActionState::Pressed,
         );
         let mut ctx = idle_ctx();
-        ctx.selection_center = None;
-        let result = ctrl.update(&frame, ctx);
+        ctx.selection_centre = None;
+        let result = run(&mut ctrl, &frame, ctx);
         assert_eq!(result, ManipResult::None);
         assert!(!ctrl.is_active());
     }
@@ -787,9 +824,9 @@ mod tests {
             viewport_lib_types::input::ResolvedActionState::Pressed,
         );
         let mut ctx = idle_ctx();
-        ctx.selection_center = Some(glam::Vec3::new(1.0, 2.0, 3.0));
+        ctx.selection_centre = Some(glam::Vec3::new(1.0, 2.0, 3.0));
 
-        let result = ctrl.update(&frame, ctx);
+        let result = run(&mut ctrl, &frame, ctx);
         assert_eq!(result, ManipResult::None); // None on first frame
         assert!(ctrl.is_active());
         assert_eq!(ctrl.state().unwrap().kind, ManipulationKind::Move);
@@ -806,7 +843,7 @@ mod tests {
         ctrl.begin(ManipulationKind::Move, glam::Vec3::ZERO);
         let mut ctx = idle_ctx();
         ctx.pointer_delta = pointer_delta; // cursor_viewport stays None -> delta path
-        match ctrl.update(&ActionFrame::default(), ctx) {
+        match run(&mut ctrl, &ActionFrame::default(), ctx) {
             ManipResult::Update(delta) => delta.translation,
             other => panic!("expected Update, got {other:?}"),
         }
@@ -862,7 +899,7 @@ mod tests {
         for out in emitted.iter_mut() {
             let mut ctx = idle_ctx();
             ctx.pointer_delta = pd;
-            match ctrl.update(&ActionFrame::default(), ctx) {
+            match run(&mut ctrl, &ActionFrame::default(), ctx) {
                 ManipResult::Update(delta) => *out = delta.translation,
                 other => panic!("expected Update, got {other:?}"),
             }
@@ -911,7 +948,7 @@ mod tests {
             ctrl.begin(ManipulationKind::Scale, glam::Vec3::ZERO);
             let mut ctx = idle_ctx();
             ctx.pointer_delta = glam::Vec2::new(2.0, 0.0);
-            match ctrl.update(&ActionFrame::default(), ctx) {
+            match run(&mut ctrl, &ActionFrame::default(), ctx) {
                 ManipResult::Update(delta) => delta.scale,
                 other => panic!("expected Update, got {other:?}"),
             }
@@ -967,7 +1004,7 @@ mod tests {
         ctrl.begin(ManipulationKind::Rotate, glam::Vec3::ZERO);
         let mut frame = ActionFrame::default();
         frame.text.extend(['4', '5']);
-        match ctrl.update(&frame, idle_ctx()) {
+        match run(&mut ctrl, &frame, idle_ctx()) {
             ManipResult::Update(delta) => {
                 assert_eq!(delta.rotation_override[0], Some(45.0));
                 assert_eq!(delta.rotation_override[1], None);

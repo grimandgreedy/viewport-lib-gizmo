@@ -1,7 +1,7 @@
 //! Per-frame driver over [`ManipulationController`].
 //!
-//! [`ManipulationController::update`] takes a fully-assembled
-//! [`ManipulationContext`]. `GizmoDriver` builds that context each frame so a
+//! [`ManipulationController::update`] takes the frame's [`FrameInput`] and the
+//! gizmo's [`GizmoInfo`]. `GizmoDriver` works out the second each frame so a
 //! consumer does not have to: it owns the [`Gizmo`] state, sizes the gizmo for the
 //! screen, hit-tests the cursor to set the hovered axis, and calls the controller.
 //!
@@ -11,62 +11,28 @@
 //! applies the resulting [`TransformDelta`](super::types::TransformDelta) to its
 //! own objects.
 //!
-//! Resolving raw events into the [`ActionFrame`] is a separate job: use
+//! Resolving raw events into the
+//! [`ActionFrame`](viewport_lib_types::input::ActionFrame) is a separate job: use
 //! `viewport-lib-input` or your own resolver, then pass the frame in here.
 
 use glam::{Quat, Vec2, Vec3};
 use viewport_lib_types::camera::Camera;
-use viewport_lib_types::input::ActionFrame;
 
 use super::ManipulationController;
 use super::types::{
-    GizmoInfo, ManipResult, ManipulationContext, ManipulationKind, ManipulationState, ValueMode,
+    FrameInput, GizmoInfo, ManipResult, ManipulationKind, ManipulationState, ValueMode,
 };
-use crate::maths::gizmo::{self, Gizmo, GizmoAxis, GizmoMode, GizmoSpace};
+use crate::maths::gizmo::{self, Gizmo, GizmoAxis, GizmoMode, GizmoSpace, PivotMode};
 use crate::maths::snap::SnapConfig;
 use crate::overlay::builder::build_gizmo_overlays;
 use crate::overlay::style::GizmoStyle;
 use viewport_lib_types::overlay::{OverlayPolylineItem, OverlayShapeItem};
 
-/// The per-frame inputs the driver needs.
-///
-/// `selection_center` is the world-space gizmo pivot, which the consumer computes
-/// from its selection (for example with
-/// [`gizmo_center_for_pivot`](crate::maths::gizmo::gizmo_center_for_pivot)). The
-/// drag flags come from the consumer's pointer handling: `drag_started` on the
-/// frame a drag begins, `dragging` while it is held, `clicked` on a completed
-/// click.
-pub struct FrameInput<'a> {
-    /// The resolved input for this frame.
-    pub action_frame: &'a ActionFrame,
-    /// The viewport camera.
-    pub camera: &'a Camera,
-    /// Viewport size in logical pixels.
-    pub viewport_size: Vec2,
-    /// Cursor position in viewport pixels (top-left origin), or `None` if outside.
-    pub cursor_viewport: Option<Vec2>,
-    /// Pointer movement since the last frame, in pixels.
-    pub pointer_delta: Vec2,
-    /// World-space centre of the selection. `None` hides the gizmo, and ends a
-    /// session in progress with [`ManipResult::Cancel`].
-    pub selection_center: Option<Vec3>,
-    /// The selection's orientation (for one object, its rotation). In local
-    /// space the handles are drawn, picked and dragged along its axes; world
-    /// space ignores it. Pass `Quat::IDENTITY` if you only use world space.
-    pub selection_orientation: Quat,
-    /// True on the frame a drag begins.
-    pub drag_started: bool,
-    /// True while a drag is held.
-    pub dragging: bool,
-    /// True on a completed click.
-    pub clicked: bool,
-}
-
 /// Drives a [`ManipulationController`] from a camera and cursor each frame.
 pub struct GizmoDriver {
     controller: ManipulationController,
     gizmo: Gizmo,
-    gizmo_center: Option<Vec3>,
+    gizmo_centre: Option<Vec3>,
     gizmo_scale: f32,
     selection_orientation: Quat,
     value_mode: ValueMode,
@@ -87,7 +53,7 @@ impl GizmoDriver {
         Self {
             controller: ManipulationController::new(),
             gizmo: Gizmo::new(),
-            gizmo_center: None,
+            gizmo_centre: None,
             gizmo_scale: 1.0,
             selection_orientation: Quat::IDENTITY,
             value_mode: ValueMode::Relative,
@@ -149,6 +115,34 @@ impl GizmoDriver {
         self.set_mode(next);
     }
 
+    /// The pivot mode: where the transform centre sits for a multi-selection.
+    /// The driver does not resolve it; pass it to
+    /// [`gizmo_centre_for_pivot`](crate::maths::gizmo::gizmo_centre_for_pivot)
+    /// to get the [`FrameInput::selection_centre`].
+    pub fn pivot_mode(&self) -> PivotMode {
+        self.gizmo.pivot_mode
+    }
+
+    /// Set the pivot mode. Ignored while a session is active: the session keeps
+    /// the pivot it started about.
+    pub fn set_pivot_mode(&mut self, mode: PivotMode) {
+        if !self.controller.is_active() {
+            self.gizmo.pivot_mode = mode;
+        }
+    }
+
+    /// Step to the next pivot mode (see [`PivotMode::cycle_next`]). Ignored while
+    /// a session is active.
+    pub fn cycle_pivot_forward(&mut self) {
+        self.set_pivot_mode(self.gizmo.pivot_mode.cycle_next());
+    }
+
+    /// Step to the previous pivot mode (see [`PivotMode::cycle_prev`]). Ignored
+    /// while a session is active.
+    pub fn cycle_pivot_backward(&mut self) {
+        self.set_pivot_mode(self.gizmo.pivot_mode.cycle_prev());
+    }
+
     /// The current gizmo space (world / local).
     pub fn space(&self) -> GizmoSpace {
         self.gizmo.space
@@ -181,8 +175,8 @@ impl GizmoDriver {
     }
 
     /// The gizmo pivot resolved on the last [`update`](Self::update).
-    pub fn gizmo_center(&self) -> Option<Vec3> {
-        self.gizmo_center
+    pub fn gizmo_centre(&self) -> Option<Vec3> {
+        self.gizmo_centre
     }
 
     /// The screen-constant world scale resolved on the last [`update`](Self::update).
@@ -191,7 +185,7 @@ impl GizmoDriver {
     }
 
     /// The gizmo state, for feeding
-    /// [`build_gizmo_overlays`](crate::overlay::builder::build_gizmo_overlays).
+    /// [`build_gizmo_overlays`].
     pub fn gizmo(&self) -> &Gizmo {
         &self.gizmo
     }
@@ -239,8 +233,8 @@ impl GizmoDriver {
     /// A [`GizmoInfo`] snapshot of the current centre, scale, orientation (see
     /// [`space_orientation`](Self::space_orientation)), and mode.
     pub fn gizmo_info(&self) -> Option<GizmoInfo> {
-        self.gizmo_center.map(|center| GizmoInfo {
-            center,
+        self.gizmo_centre.map(|centre| GizmoInfo {
+            centre,
             scale: self.gizmo_scale,
             orientation: self.space_orientation(),
             mode: self.gizmo.mode,
@@ -281,7 +275,7 @@ impl GizmoDriver {
         shapes: &mut Vec<OverlayShapeItem>,
         polylines: &mut Vec<OverlayPolylineItem>,
     ) {
-        let Some(centre) = self.gizmo_center else {
+        let Some(centre) = self.gizmo_centre else {
             return;
         };
         let scale = gizmo::gizmo_scale_for_camera(centre, camera, viewport_size.y);
@@ -301,17 +295,17 @@ impl GizmoDriver {
         );
     }
 
-    /// Drive the gizmo for one frame: size it, update the hovered axis, assemble
-    /// the [`ManipulationContext`], and run the controller. Returns the
+    /// Drive the gizmo for one frame: size it, update the hovered axis, and run
+    /// the controller with the gizmo's [`GizmoInfo`]. Returns the
     /// [`ManipResult`]; apply any [`Update`](ManipResult::Update) delta to your
     /// own objects.
     pub fn update(&mut self, input: FrameInput) -> ManipResult {
-        self.gizmo_center = input.selection_center;
+        self.gizmo_centre = input.selection_centre;
         self.selection_orientation = input.selection_orientation;
 
-        if let Some(center) = self.gizmo_center {
+        if let Some(centre) = self.gizmo_centre {
             self.gizmo_scale =
-                gizmo::gizmo_scale_for_camera(center, input.camera, input.viewport_size.y);
+                gizmo::gizmo_scale_for_camera(centre, input.camera, input.viewport_size.y);
         }
 
         // Update the hovered axis only when no session is active; during a drag
@@ -324,14 +318,14 @@ impl GizmoDriver {
         if !self.controller.is_active() {
             if foreign_press {
                 self.gizmo.hovered_axis = GizmoAxis::None;
-            } else if let (Some(center), Some(cursor)) = (self.gizmo_center, input.cursor_viewport)
+            } else if let (Some(centre), Some(cursor)) = (self.gizmo_centre, input.cursor_viewport)
             {
                 let (ray_origin, ray_dir) =
                     gizmo::cursor_ray(input.camera, cursor, input.viewport_size);
                 self.gizmo.hovered_axis = self.gizmo.hit_test_oriented(
                     ray_origin,
                     ray_dir,
-                    center,
+                    centre,
                     self.gizmo_scale,
                     self.selection_orientation,
                 );
@@ -340,19 +334,7 @@ impl GizmoDriver {
             }
         }
 
-        let ctx = ManipulationContext {
-            camera: input.camera.clone(),
-            viewport_size: input.viewport_size,
-            cursor_viewport: input.cursor_viewport,
-            pointer_delta: input.pointer_delta,
-            selection_center: self.gizmo_center,
-            gizmo: self.gizmo_info(),
-            drag_started: input.drag_started,
-            dragging: input.dragging,
-            clicked: input.clicked,
-        };
-
-        let result = self.controller.update(input.action_frame, ctx);
+        let result = self.controller.update(input, self.gizmo_info());
 
         // While a session is active, draw the handles for what is being done: a
         // keyboard G/R/S session sets the mode the overlay uses, and the mode set
@@ -390,6 +372,7 @@ fn constraint_label(axis: Option<GizmoAxis>, exclude: bool) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use viewport_lib_types::input::ActionFrame;
 
     fn camera() -> Camera {
         let mut c = Camera::default();
@@ -412,7 +395,7 @@ mod tests {
         camera: &'a Camera,
         vp: Vec2,
         cursor: Option<Vec2>,
-        center: Option<Vec3>,
+        centre: Option<Vec3>,
     ) -> FrameInput<'a> {
         FrameInput {
             action_frame: af,
@@ -420,7 +403,7 @@ mod tests {
             viewport_size: vp,
             cursor_viewport: cursor,
             pointer_delta: Vec2::ZERO,
-            selection_center: center,
+            selection_centre: centre,
             selection_orientation: Quat::IDENTITY,
             drag_started: false,
             dragging: false,
@@ -446,7 +429,7 @@ mod tests {
         let cam = camera();
         let vp = Vec2::new(1280.0, 720.0);
         d.update(frame(&af, &cam, vp, None, Some(Vec3::ZERO)));
-        assert_eq!(d.gizmo_center(), Some(Vec3::ZERO));
+        assert_eq!(d.gizmo_centre(), Some(Vec3::ZERO));
         assert!(
             d.gizmo_scale() > 0.0,
             "scale should be sized for the screen"

@@ -4,10 +4,10 @@
 //! rendering into an `OffscreenViewportTarget` that egui displays), and adds a
 //! right sidebar: preset buttons (default / thin / bold) and per-axis colour
 //! pickers that edit the [`GizmoStyle`]. Drag a handle to move the cube; drag the
-//! background to orbit; press Q (or the sidebar buttons) to cycle the gizmo mode,
-//! and backtick (`) to toggle relative / objective values. With the cursor over
-//! the viewport, G, R and S start a keyboard session: X / Y / Z constrain it,
-//! typed numbers set a value, Enter or a click confirms, and Escape cancels.
+//! background to orbit. With the cursor over the viewport, Tab or Q (or the
+//! sidebar buttons) cycles the gizmo mode, backtick (`) toggles relative /
+//! objective values, and G, R and S start a keyboard session: X / Y / Z constrain
+//! it, typed numbers set a value, Enter or a click confirms, and Escape cancels.
 //!
 //! Run with `cargo run --example gizmo_styling`.
 
@@ -16,14 +16,37 @@ use glam::{Mat4, Quat, Vec2, Vec3};
 use viewport_lib as vpl;
 use vpl::input::adapters::{AdapterCtx, egui as vpl_egui};
 use vpl::{
-    Colour, Material, NodeId, OffscreenViewportTarget, OrbitCameraController, ViewportContext,
-    ViewportInstance, primitives,
+    Action, Colour, Material, ModifiersMatch, NodeId, OffscreenViewportTarget,
+    OrbitCameraController, ViewportBinding, ViewportContext, ViewportGesture, ViewportInstance,
+    primitives, viewport_default_bindings,
 };
 
 use viewport_lib_gizmo::{
     AxisColour, FrameInput, GizmoAxis, GizmoDriver, GizmoMode, GizmoStyle, ManipResult,
     TransformDelta, ValueMode, build_gizmo_overlays, build_numeric_label,
 };
+
+/// Toggles relative / objective values. The example's own shortcut, so a
+/// `Custom` action: the value means nothing to the library.
+const TOGGLE_VALUE_MODE: Action = Action::Custom(1);
+
+/// The default bindings, with Q also cycling the gizmo mode (Tab already does)
+/// and backtick toggling the value mode. Both are bound by the character they
+/// type, so they are the keys labelled Q and ` on any layout, and they only fire
+/// while the viewport has the keyboard.
+fn gizmo_bindings() -> Vec<ViewportBinding> {
+    let char_press = |ch| ViewportGesture::CharPress {
+        ch,
+        modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
+    };
+    let mut bindings = viewport_default_bindings();
+    bindings.push(ViewportBinding::new(
+        Action::CycleGizmoMode,
+        char_press('q'),
+    ));
+    bindings.push(ViewportBinding::new(TOGGLE_VALUE_MODE, char_press('`')));
+    bindings
+}
 
 /// Compose a transform delta around a world pivot onto a base transform. Numeric
 /// overrides are applied relative to the start pose or as absolute world values,
@@ -91,6 +114,7 @@ fn main() -> eframe::Result {
                 &rs.device,
                 OffscreenViewportTarget::render_format(rs.target_format),
             );
+            session.set_bindings(gizmo_bindings());
             let cube = session
                 .resources_mut()
                 .upload_mesh_data(&rs.device, &primitives::cube(1.0))
@@ -140,21 +164,13 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let rs = frame.wgpu_render_state().expect("wgpu backend required");
 
-        // Q cycles the gizmo mode; backtick toggles relative / objective values.
-        if ctx.input(|i| i.key_pressed(egui::Key::Q)) {
-            self.driver.cycle_mode();
-        }
-        if ctx.input(|i| i.key_pressed(egui::Key::Backtick)) {
-            self.driver.toggle_value_mode();
-        }
-
         egui::SidePanel::right("style_panel")
             .resizable(false)
             .show(ctx, |ui| {
                 ui.heading("Gizmo style");
                 ui.separator();
                 ui.label(format!(
-                    "Mode: {:?}  (press Q to cycle)",
+                    "Mode: {:?}  (Q over the viewport cycles)",
                     self.driver.mode()
                 ));
                 ui.horizontal(|ui| {
@@ -212,11 +228,7 @@ impl eframe::App for App {
                 // (Re)create the offscreen target when the panel size changes. The
                 // renderer draws into its sRGB render view; egui samples the
                 // non-sRGB sample view, so the encoded bytes are shown as they are.
-                if self
-                    .target
-                    .as_ref()
-                    .map_or(true, |t| t.inner.size() != size)
-                {
+                if self.target.as_ref().is_none_or(|t| t.inner.size() != size) {
                     let inner = OffscreenViewportTarget::new(&rs.device, rs.target_format, size);
                     let mut renderer = rs.renderer.write();
                     if let Some(old) = self.target.take() {
@@ -256,21 +268,25 @@ impl eframe::App for App {
                 let af = self.session.resolve().clone();
                 let camera = self.session.camera().clone();
                 let viewport = [rect.width(), rect.height()];
-                let center = self.current.col(3).truncate();
+                let centre = self.current.col(3).truncate();
+
+                // Tab or Q cycles the gizmo mode, backtick toggles relative /
+                // objective values. cycle_mode is ignored during a session, where
+                // Tab advances the numeric axis instead.
+                if af.is_active(Action::CycleGizmoMode) {
+                    self.driver.cycle_mode();
+                }
+                if af.is_active(TOGGLE_VALUE_MODE) {
+                    self.driver.toggle_value_mode();
+                }
 
                 let tool_was_busy = self.driver.is_active();
-                let result = self.driver.update(FrameInput {
-                    action_frame: &af,
-                    camera: &camera,
-                    viewport_size: Vec2::new(viewport[0], viewport[1]),
-                    cursor_viewport: af.pointer.cursor,
-                    pointer_delta: af.pointer.delta,
-                    selection_center: Some(center),
-                    selection_orientation: glam::Quat::IDENTITY,
-                    drag_started: af.pointer.pressed,
-                    dragging: af.pointer.dragging,
-                    clicked: af.pointer.clicked,
-                });
+                let result = self.driver.update(FrameInput::from_action(
+                    &af,
+                    &camera,
+                    Vec2::new(viewport[0], viewport[1]),
+                    Some(centre),
+                ));
                 match result {
                     ManipResult::Update(delta) => {
                         let pivot = self.base.col(3).truncate();
@@ -287,10 +303,8 @@ impl eframe::App for App {
                             .scene_mut()
                             .set_local_transform(self.node, self.current);
                     }
-                    ManipResult::None => {
-                        if !self.driver.is_active() {
-                            self.base = self.current;
-                        }
+                    ManipResult::None if !self.driver.is_active() => {
+                        self.base = self.current;
                     }
                     _ => {}
                 }
@@ -318,7 +332,7 @@ impl eframe::App for App {
 
                 // Draw the gizmo in the current style, after assembly so it is not
                 // cleared.
-                if let Some(gizmo_center) = self.driver.gizmo_center() {
+                if let Some(gizmo_centre) = self.driver.gizmo_centre() {
                     let scale = self.driver.gizmo_scale();
                     let view_proj = camera.proj_matrix() * camera.view_matrix();
                     let forward = camera.forward();
@@ -332,7 +346,7 @@ impl eframe::App for App {
                         view_proj,
                         forward,
                         viewport,
-                        gizmo_center,
+                        gizmo_centre,
                         scale,
                         hovered,
                         Quat::IDENTITY,
@@ -344,7 +358,7 @@ impl eframe::App for App {
                         fd.overlays.labels.push(build_numeric_label(
                             &self.style,
                             &text,
-                            gizmo_center,
+                            gizmo_centre,
                         ));
                     }
                 }

@@ -104,7 +104,7 @@ fn a_zero_sized_viewport_does_not_produce_nan() {
         viewport_size: Vec2::ZERO,
         cursor_viewport: cursor,
         pointer_delta: Vec2::new(3.0, 1.0),
-        selection_center: Some(Vec3::ZERO),
+        selection_centre: Some(Vec3::ZERO),
         selection_orientation: glam::Quat::IDENTITY,
         drag_started: started,
         dragging,
@@ -178,7 +178,7 @@ fn gizmo_info_reports_the_resolved_centre_scale_and_mode() {
     driver.set_mode(GizmoMode::Scale);
     let rig = Rig::with_driver(driver, three_quarter(), Vec3::new(1.0, 2.0, 0.5));
     let info = rig.driver.gizmo_info().expect("a selection");
-    assert_eq!(info.center, Vec3::new(1.0, 2.0, 0.5));
+    assert_eq!(info.centre, Vec3::new(1.0, 2.0, 0.5));
     assert_eq!(info.scale, rig.scale());
     assert_eq!(info.mode, GizmoMode::Scale);
 }
@@ -201,4 +201,88 @@ fn cycle_mode_wraps_through_all_three() {
             GizmoMode::Rotate
         ]
     );
+}
+
+#[test]
+fn from_action_reads_the_pointer_frame() {
+    let camera = three_quarter();
+    let mut af = ActionFrame::default();
+    af.pointer.cursor = Some(Vec2::new(10.0, 20.0));
+    af.pointer.delta = Vec2::new(3.0, -1.0);
+    af.pointer.pressed = true;
+    af.pointer.dragging = true;
+    let input = FrameInput::from_action(&af, &camera, VP, Some(Vec3::X));
+    assert_eq!(input.cursor_viewport, Some(Vec2::new(10.0, 20.0)));
+    assert_eq!(input.pointer_delta, Vec2::new(3.0, -1.0));
+    assert!(input.drag_started && input.dragging && !input.clicked);
+    assert_eq!(input.selection_centre, Some(Vec3::X));
+    assert_eq!(input.selection_orientation, glam::Quat::IDENTITY);
+}
+
+#[test]
+fn from_action_takes_a_tap_as_a_click_at_the_touch() {
+    let camera = three_quarter();
+    let mut af = ActionFrame::default();
+    af.pointer.tapped = true;
+    af.pointer.touch_position = Some(Vec2::new(5.0, 6.0));
+    let input = FrameInput::from_action(&af, &camera, VP, None);
+    assert!(input.clicked);
+    assert_eq!(input.cursor_viewport, Some(Vec2::new(5.0, 6.0)));
+}
+
+#[test]
+fn a_drag_driven_through_from_action_moves_the_object() {
+    // The same handle drag the rig runs, with every frame built by from_action.
+    let camera = three_quarter();
+    let mut driver = GizmoDriver::new();
+    let frame = |cursor: Vec2, pressed: bool, held: bool| {
+        let mut af = ActionFrame::default();
+        af.pointer.cursor = Some(cursor);
+        af.pointer.pressed = pressed;
+        af.pointer.dragging = held;
+        af
+    };
+    let idle = frame(Vec2::ZERO, false, false);
+    driver.update(FrameInput::from_action(
+        &idle,
+        &camera,
+        VP,
+        Some(Vec3::ZERO),
+    ));
+    let grab = to_px(&camera, Vec3::X * driver.gizmo_scale() * 0.5);
+    for af in [frame(grab, false, false), frame(grab, true, true)] {
+        driver.update(FrameInput::from_action(&af, &camera, VP, Some(Vec3::ZERO)));
+    }
+    let moved = frame(grab + Vec2::new(60.0, 0.0), false, true);
+    let r = driver.update(FrameInput::from_action(
+        &moved,
+        &camera,
+        VP,
+        Some(Vec3::ZERO),
+    ));
+    assert!(update(r).translation.x.abs() > 0.0);
+    let up = frame(grab + Vec2::new(60.0, 0.0), false, false);
+    let r = driver.update(FrameInput::from_action(&up, &camera, VP, Some(Vec3::ZERO)));
+    assert_eq!(r, ManipResult::Commit);
+}
+
+#[test]
+fn the_driver_cycles_the_pivot_and_holds_it_during_a_session() {
+    use viewport_lib_gizmo::PivotMode;
+    let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
+    assert_eq!(rig.driver.pivot_mode(), PivotMode::SelectionCentroid);
+    rig.driver.cycle_pivot_forward();
+    assert_eq!(rig.driver.pivot_mode(), PivotMode::IndividualOrigins);
+    rig.driver.cycle_pivot_backward();
+    rig.driver.cycle_pivot_backward();
+    assert_eq!(rig.driver.pivot_mode(), PivotMode::WorldOrigin);
+
+    rig.hover(rig.centre_px() + Vec2::new(200.0, 0.0));
+    rig.keys(&[Action::BeginMove]);
+    rig.driver.cycle_pivot_forward();
+    rig.driver.set_pivot_mode(PivotMode::MedianPoint);
+    assert_eq!(rig.driver.pivot_mode(), PivotMode::WorldOrigin);
+    rig.keys(&[Action::Cancel]);
+    rig.driver.set_pivot_mode(PivotMode::MedianPoint);
+    assert_eq!(rig.driver.pivot_mode(), PivotMode::MedianPoint);
 }

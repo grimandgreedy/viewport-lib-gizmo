@@ -16,7 +16,7 @@ Use as much of the crate as you need.
    `project_drag_onto_axis`, `project_drag_onto_plane`,
    `project_drag_onto_rotation`, `project_drag_onto_screen_plane`,
    `gizmo_scale_for_camera` (and the perspective-only `compute_gizmo_scale`),
-   `gizmo_center_for_pivot`, `cursor_ray`, the `Gizmo` hit-tester, and the
+   `gizmo_centre_for_pivot`, `cursor_ray`, the `Gizmo` hit-tester, and the
    `snap_*` helpers. Enough to build a gizmo of your own.
 2. **Style and overlays.** `build_gizmo_overlays` turns gizmo state into overlay
    shapes and polylines in the look set by a `GizmoStyle`. `GizmoStyle::default()`,
@@ -25,13 +25,15 @@ Use as much of the crate as you need.
 3. **Controller.** `ManipulationController` runs the drag and keyboard sessions
    (G / R / S, X / Y / Z constraints, typed numeric values, confirm and cancel)
    and reports a `TransformDelta`. `GizmoDriver` wraps it with the per-frame work:
-   sizing the gizmo for the screen, hit-testing the cursor, and assembling the
-   context. Most apps start here.
+   sizing the gizmo for the screen, hit-testing the cursor, and handing the
+   controller the gizmo's state. Most apps start here. Both read the same
+   `FrameInput`.
 
 ## Usage
 
 Each frame, pass the driver the resolved input, the camera, and the world-space
-centre of the selection, then act on the result:
+centre of the selection, then act on the result. `FrameInput::from_action` reads
+the cursor and the primary button from the resolved input's pointer frame:
 
 ```rust,ignore
 use viewport_lib_gizmo::{
@@ -42,18 +44,9 @@ let mut driver = GizmoDriver::new();
 let style = GizmoStyle::default();
 
 // Each frame:
-let result = driver.update(FrameInput {
-    action_frame: &action_frame,
-    camera: &camera,
-    viewport_size,
-    cursor_viewport: pointer.cursor,
-    pointer_delta: pointer.delta,
-    selection_center: Some(centre),
-    selection_orientation: rotation, // used in local space; Quat::IDENTITY if world only
-    drag_started: pointer.drag_started,
-    dragging: pointer.dragging,
-    clicked: pointer.clicked,
-});
+let input = FrameInput::from_action(&action_frame, &camera, viewport_size, Some(centre))
+    .with_selection_orientation(rotation); // used in local space; leave it out for world only
+let result = driver.update(input);
 
 match result {
     // Total change since the session began: apply it to the start pose.
@@ -63,7 +56,7 @@ match result {
     _ => {}
 }
 
-if let Some(centre) = driver.gizmo_center() {
+if let Some(centre) = driver.gizmo_centre() {
     build_gizmo_overlays(
         &style,
         driver.mode(),
@@ -96,6 +89,15 @@ drawn, picked and dragged along those axes, and the X / Y / Z constraint keys
 use them too. A session keeps the axes it started with.
 `driver.space_orientation()` is the orientation to hand to
 `build_gizmo_overlays`: identity in world space.
+
+### Pivot
+
+`driver.pivot_mode()` is where the transform centre sits for a multi-selection
+(the centroid, each object's own origin, the world origin, a 3D cursor), cycled
+with `cycle_pivot_forward()` and `cycle_pivot_backward()` (bound by default to
+the `CyclePivotModeForward` and `CyclePivotModeBackward` actions). The driver
+does not resolve it: pass it to `gizmo_centre_for_pivot` with your selection to
+get the `selection_centre`. A session keeps the pivot it started about.
 
 G, R and S switch the handles to the session's kind while it runs; the mode set
 before comes back when it ends.
@@ -130,12 +132,9 @@ let mut active = ActiveView::new();
 // Each frame:
 let view = active.current(hovered_view);         // the view under the cursor, held during a drag
 let i = view.unwrap_or(0);
-driver.update(FrameInput {
-    camera: &cameras[i],
-    viewport_size: sizes[i],
-    cursor_viewport: view.and(cursor_in_view_i),  // in that view's own pixels
-    ..
-});
+let mut input = FrameInput::from_action(&action_frame, &cameras[i], sizes[i], centre);
+input.cursor_viewport = view.and(cursor_in_view_i);   // in that view's own pixels
+driver.update(input);
 active.end_frame(view, button_held || driver.is_active());
 
 for (j, frame) in frames.iter_mut().enumerate() {

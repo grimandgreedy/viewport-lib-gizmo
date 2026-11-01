@@ -53,7 +53,7 @@ use viewport_lib_ui_extend::layout::TextMeasure;
 use viewport_lib_ui_extend::serde_json;
 
 use crate::frame::GizmoFrame;
-use viewport_lib_gizmo::controller::driver::FrameInput;
+use viewport_lib_gizmo::controller::FrameInput;
 use viewport_lib_gizmo::controller::{GizmoDriver, ManipResult, TransformDelta, ValueMode};
 use viewport_lib_gizmo::maths::gizmo::{self, GizmoAxis, GizmoMode, GizmoSpace};
 use viewport_lib_gizmo::overlay::builder::build_gizmo_overlays;
@@ -462,7 +462,7 @@ impl CustomWidget for GizmoTool {
             viewport_size: viewport,
             cursor_viewport,
             pointer_delta,
-            selection_center: frame.selection_centre,
+            selection_centre: frame.selection_centre,
             selection_orientation: frame.selection_orientation,
             drag_started: ours && input.buttons.primary_pressed,
             dragging: ours && input.buttons.primary_down,
