@@ -5,6 +5,9 @@ edition = "2024"
 rust-version = "1.85"
 description = "Standalone transform gizmo for viewport-lib scenes: renderer-free hit-testing, drag projection, snapping, and overlay building."
 license = "GPL-3.0-only"
+repository = "https://github.com/grimandgreedy/viewport-lib-gizmo"
+# The README images are linked by URL, so they stay out of the package.
+exclude = ["assets/"]
 autoexamples = false
 
 [dependencies]
