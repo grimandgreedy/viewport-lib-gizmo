@@ -34,6 +34,9 @@ use vpl::{
     ViewportId, ViewportInput, WindowConfig, primitives, viewport_default_bindings,
 };
 
+use viewport_lib_gizmo::actions::CYCLE_GIZMO_MODE;
+use viewport_lib_gizmo::manipulation_bindings;
+
 use viewport_lib_ui::{
     Alignment, Frame, HostMap, HostSources, InputTranslator, Layout, Screen, ShapedTextMeasurer,
     UiState, Widget, WidgetKind, WidgetRegistry, custom_output, extend_frame, map_cursor,
@@ -161,19 +164,18 @@ fn apply(delta: &GizmoDelta, pivot: Vec3, base: Mat4, values: ValueMode) -> Mat4
 /// `Custom` action: the value means nothing to the library.
 const TOGGLE_VALUE_MODE: Action = Action::Custom(1);
 
-/// The default bindings, with Q also cycling the gizmo mode (Tab already does)
-/// and backtick toggling the value mode. Both are bound by the character they
-/// type, so they are the keys labelled Q and ` on any layout.
+/// The default bindings plus the gizmo's own, with Q also cycling the gizmo
+/// mode (Tab already does) and backtick toggling the value mode. Both are bound
+/// by the character they type, so they are the keys labelled Q and ` on any
+/// layout.
 fn gizmo_bindings() -> Vec<ViewportBinding> {
     let char_press = |ch| ViewportGesture::CharPress {
         ch,
         modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
     };
     let mut bindings = viewport_default_bindings();
-    bindings.push(ViewportBinding::new(
-        Action::CycleGizmoMode,
-        char_press('q'),
-    ));
+    bindings.extend(manipulation_bindings());
+    bindings.push(ViewportBinding::new(CYCLE_GIZMO_MODE, char_press('q')));
     bindings.push(ViewportBinding::new(TOGGLE_VALUE_MODE, char_press('`')));
     bindings
 }
@@ -327,7 +329,7 @@ fn main() {
                 }
                 // Tab or Q cycles the mode, except during a session, where Tab
                 // advances the numeric axis instead.
-                if !tool.is_active() && action.is_active(Action::CycleGizmoMode) {
+                if !tool.is_active() && action.is_active(CYCLE_GIZMO_MODE) {
                     tool.set_mode(match tool.mode() {
                         GizmoMode::Translate => GizmoMode::Rotate,
                         GizmoMode::Rotate => GizmoMode::Scale,

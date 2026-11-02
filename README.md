@@ -73,6 +73,17 @@ if let Some(centre) = driver.gizmo_centre() {
 }
 ```
 
+### Keys
+
+The controller reads the actions in `viewport_lib_gizmo::actions`. They are `Action::Custom` values, so the resolver reports them only once it has bindings for them: add `manipulation_bindings()` to the resolver the gizmo reads from.
+
+```rust,ignore
+let input = ViewportInput::from_preset(BindingPreset::Default)
+    .with_bindings(viewport_lib_gizmo::manipulation_bindings());
+```
+
+That binds G, R and S to begin a session, X / Y / Z to constrain (with Shift to exclude), Backspace and Tab for typed values, Tab to cycle the mode outside a session, and `[` / `]` to cycle the pivot. `actions::TOGGLE_SPACE` is left unbound for the host to place. The crate keeps its values in `0x1000_0000..0x1000_0100`; give your own `Custom` actions values below `0x1000_0000`.
+
 `TransformDelta` is cumulative. Each `Update` holds the whole change since the
 drag began, so you recompute the pose from the drag-start snapshot every frame.
 Nothing drifts, and cancelling just restores the snapshot.
@@ -94,8 +105,9 @@ use them too. A session keeps the axes it started with.
 
 `driver.pivot_mode()` is where the transform centre sits for a multi-selection
 (the centroid, each object's own origin, the world origin, a 3D cursor), cycled
-with `cycle_pivot_forward()` and `cycle_pivot_backward()` (bound by default to
-the `CyclePivotModeForward` and `CyclePivotModeBackward` actions). The driver
+with `cycle_pivot_forward()` and `cycle_pivot_backward()` (call them when the
+`actions::CYCLE_PIVOT_FORWARD` and `actions::CYCLE_PIVOT_BACKWARD` actions fire;
+`manipulation_bindings()` binds them to `[` and `]`). The driver
 does not resolve it: pass it to `gizmo_centre_for_pivot` with your selection to
 get the `selection_centre`. A session keeps the pivot it started about.
 

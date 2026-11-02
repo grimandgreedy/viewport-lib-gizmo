@@ -172,14 +172,14 @@ impl Gizmo {
 
     /// Advance the pivot mode to the next in the cycle.
     ///
-    /// Call this when [`viewport_lib_types::input::Action::CyclePivotModeForward`] fires.
+    /// Call this when [`CYCLE_PIVOT_FORWARD`](crate::actions::CYCLE_PIVOT_FORWARD) fires.
     pub fn cycle_pivot_forward(&mut self) {
         self.pivot_mode = self.pivot_mode.cycle_next();
     }
 
     /// Step the pivot mode back to the previous in the cycle.
     ///
-    /// Call this when [`viewport_lib_types::input::Action::CyclePivotModeBackward`] fires.
+    /// Call this when [`CYCLE_PIVOT_BACKWARD`](crate::actions::CYCLE_PIVOT_BACKWARD) fires.
     pub fn cycle_pivot_backward(&mut self) {
         self.pivot_mode = self.pivot_mode.cycle_prev();
     }

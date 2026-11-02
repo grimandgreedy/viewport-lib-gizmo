@@ -6,6 +6,7 @@ mod common;
 
 use common::*;
 use glam::{DVec3, Vec2, Vec3};
+use viewport_lib_gizmo::actions;
 use viewport_lib_gizmo::{
     ActiveView, FrameInput, GizmoAxis, GizmoDriver, GizmoMode, GizmoStyle, ManipResult,
 };
@@ -80,8 +81,8 @@ fn the_z_arm_seen_end_on_cannot_be_dragged_into_infinity() {
     // From straight above, Z points at the camera and projects to a point.
     let mut rig = Rig::new(top(), Vec3::ZERO);
     rig.hover(rig.centre_px() + Vec2::new(200.0, 0.0));
-    rig.keys(&[Action::BeginMove]);
-    rig.keys(&[Action::ConstrainZ]);
+    rig.keys(&[actions::BEGIN_MOVE]);
+    rig.keys(&[actions::CONSTRAIN_Z]);
     for i in 1..=5 {
         let d = update(rig.hover(rig.centre_px() + Vec2::new(200.0 + 30.0 * i as f32, 10.0)));
         assert!(is_finite(&d), "{d:?}");
@@ -112,7 +113,7 @@ fn a_zero_sized_viewport_does_not_produce_nan() {
     };
     driver.update(input(&af, Some(Vec2::ZERO), false, false));
     assert!(driver.gizmo_scale().is_finite(), "{}", driver.gizmo_scale());
-    let g = pressed(&[Action::BeginMove]);
+    let g = pressed(&[actions::BEGIN_MOVE]);
     driver.update(input(&g, Some(Vec2::ZERO), false, false));
     for _ in 0..3 {
         if let ManipResult::Update(d) = driver.update(input(&af, Some(Vec2::ONE), false, false)) {
@@ -128,7 +129,7 @@ fn a_selection_behind_the_camera_builds_no_overlay_and_moves_finitely() {
     let mut rig = Rig::new(camera.clone(), behind);
     assert_eq!(overlays(&rig, &camera, true).0, 0);
     rig.hover(Vec2::new(600.0, 400.0));
-    rig.keys(&[Action::BeginMove]);
+    rig.keys(&[actions::BEGIN_MOVE]);
     let d = update(rig.hover(Vec2::new(650.0, 380.0)));
     assert!(is_finite(&d), "{d:?}");
 }
@@ -278,7 +279,7 @@ fn the_driver_cycles_the_pivot_and_holds_it_during_a_session() {
     assert_eq!(rig.driver.pivot_mode(), PivotMode::WorldOrigin);
 
     rig.hover(rig.centre_px() + Vec2::new(200.0, 0.0));
-    rig.keys(&[Action::BeginMove]);
+    rig.keys(&[actions::BEGIN_MOVE]);
     rig.driver.cycle_pivot_forward();
     rig.driver.set_pivot_mode(PivotMode::MedianPoint);
     assert_eq!(rig.driver.pivot_mode(), PivotMode::WorldOrigin);

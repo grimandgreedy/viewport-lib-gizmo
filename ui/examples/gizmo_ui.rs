@@ -36,6 +36,9 @@ use vpl::{
     viewport_default_bindings,
 };
 
+use viewport_lib_gizmo::actions::CYCLE_GIZMO_MODE;
+use viewport_lib_gizmo::manipulation_bindings;
+
 use viewport_lib_ui::{
     Alignment, Colour, Cursor, Frame, HostMap, HostSources, InputTranslator, Layout, Screen,
     ShapedTextMeasurer, Theme, ThemeMode, UiEvent, UiState, Value, Visibility, Widget, WidgetKind,
@@ -64,19 +67,18 @@ const MODE_BADGE: u32 = 14;
 const TOGGLE_VALUE_MODE: Action = Action::Custom(1);
 const CYCLE_READOUT: Action = Action::Custom(2);
 
-/// The default bindings, with Q also cycling the gizmo mode (Tab already does),
-/// plus the example's backtick and H. All are bound by the character they type,
-/// so they are the keys labelled Q, ` and H on any layout.
+/// The default bindings plus the gizmo's own, with Q also cycling the gizmo
+/// mode (Tab already does), and the example's backtick and H. All are bound by
+/// the character they type, so they are the keys labelled Q, ` and H on any
+/// layout.
 fn gizmo_bindings() -> Vec<ViewportBinding> {
     let char_press = |ch| ViewportGesture::CharPress {
         ch,
         modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
     };
     let mut bindings = viewport_default_bindings();
-    bindings.push(ViewportBinding::new(
-        Action::CycleGizmoMode,
-        char_press('q'),
-    ));
+    bindings.extend(manipulation_bindings());
+    bindings.push(ViewportBinding::new(CYCLE_GIZMO_MODE, char_press('q')));
     bindings.push(ViewportBinding::new(TOGGLE_VALUE_MODE, char_press('`')));
     bindings.push(ViewportBinding::new(CYCLE_READOUT, char_press('h')));
     bindings
@@ -302,7 +304,7 @@ fn main() {
                     let action = ictx.resolve().clone();
                     let pressed = action.pointer.pressed;
                     // Tab or Q cycles the gizmo mode.
-                    if action.is_active(Action::CycleGizmoMode) {
+                    if action.is_active(CYCLE_GIZMO_MODE) {
                         let a = app.borrow();
                         let next = match a.tool.mode() {
                             GizmoMode::Translate => GizmoMode::Rotate,

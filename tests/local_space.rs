@@ -5,8 +5,8 @@ mod common;
 
 use common::*;
 use glam::{Quat, Vec2, Vec3};
+use viewport_lib_gizmo::actions;
 use viewport_lib_gizmo::{GizmoAxis, GizmoDriver, GizmoMode, GizmoSpace, ROTATION_RING_RADIUS};
-use viewport_lib_types::input::Action;
 
 /// Turned 40 degrees about Z, then tipped 25 degrees about the new X.
 fn turned() -> Quat {
@@ -65,8 +65,8 @@ fn dragging_the_local_x_arm_moves_along_local_x_under_the_cursor() {
 fn g_then_x_in_local_space_moves_along_local_x() {
     let mut rig = local_rig(GizmoMode::Translate);
     rig.hover(rig.centre_px() + Vec2::new(200.0, 100.0));
-    rig.keys(&[Action::BeginMove]);
-    rig.keys(&[Action::ConstrainX]);
+    rig.keys(&[actions::BEGIN_MOVE]);
+    rig.keys(&[actions::CONSTRAIN_X]);
     let d = update(rig.hover(rig.cursor.unwrap() + Vec2::new(90.0, -30.0)));
     let local_x = turned() * Vec3::X;
     assert!(d.translation.length() > 0.05);
@@ -119,8 +119,8 @@ fn the_local_xy_handle_is_picked_where_it_is_drawn() {
 fn shift_z_in_local_space_stays_in_the_local_plane() {
     let mut rig = local_rig(GizmoMode::Translate);
     rig.hover(rig.centre_px() + Vec2::new(150.0, 80.0));
-    rig.keys(&[Action::BeginMove]);
-    rig.keys(&[Action::ExcludeZ]);
+    rig.keys(&[actions::BEGIN_MOVE]);
+    rig.keys(&[actions::EXCLUDE_Z]);
     let lz = turned() * Vec3::Z;
     for step in [
         Vec2::new(60.0, 0.0),

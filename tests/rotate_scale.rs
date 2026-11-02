@@ -4,10 +4,10 @@ mod common;
 
 use common::*;
 use glam::{Quat, Vec2, Vec3};
+use viewport_lib_gizmo::actions;
 use viewport_lib_gizmo::{
     GizmoAxis, GizmoDriver, GizmoMode, ManipResult, ROTATION_RING_RADIUS, SnapConfig,
 };
-use viewport_lib_types::input::Action;
 
 fn rig_in(camera: viewport_lib_types::camera::Camera, mode: GizmoMode) -> Rig {
     let mut driver = GizmoDriver::new();
@@ -101,8 +101,8 @@ fn r_then_x_turns_about_x_with_the_cursor_sweep() {
         c + Vec2::new(a.cos(), -a.sin()) * 150.0
     };
     rig.hover(at(0.0));
-    rig.keys(&[Action::BeginRotate]);
-    rig.keys(&[Action::ConstrainX]);
+    rig.keys(&[actions::BEGIN_ROTATE]);
+    rig.keys(&[actions::CONSTRAIN_X]);
     let mut last = ManipResult::None;
     for deg in (5..=60).step_by(5) {
         last = rig.hover(at(deg as f32));
@@ -207,7 +207,7 @@ fn a_keyboard_scale_session_started_without_a_cursor_scales_once_the_cursor_move
     let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
     rig.cursor = None;
     rig.frame_with(
-        &pressed(&[Action::BeginScale]),
+        &pressed(&[actions::BEGIN_SCALE]),
         None,
         Vec2::ZERO,
         false,

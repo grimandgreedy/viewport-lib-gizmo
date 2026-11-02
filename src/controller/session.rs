@@ -2,16 +2,17 @@
 //!
 //! This module is not part of the public API. All types are `pub(crate)`.
 
+use crate::actions::{NUMERIC_BACKSPACE, NUMERIC_NEXT_AXIS};
 use crate::maths::gizmo::GizmoAxis;
-use viewport_lib_types::input::{Action, ActionFrame};
+use viewport_lib_types::input::ActionFrame;
 
 use super::types::{ManipulationKind, ManipulationState};
 
 /// Buffers numeric input from the keyboard during a manipulation session.
 ///
 /// Activated when the user types a digit, sign or point during an active
-/// session. Each active axis gets its own string buffer; `NumericNextAxis`
-/// moves between them and `NumericBackspace` erases.
+/// session. Each active axis gets its own string buffer; `NUMERIC_NEXT_AXIS`
+/// moves between them and `NUMERIC_BACKSPACE` erases.
 #[derive(Debug, Clone)]
 pub(crate) struct NumericInputState {
     /// Which axis indices are accepting input (depends on constraint).
@@ -215,8 +216,8 @@ pub(crate) fn update_constraint(
 
 /// Update numeric buffering for the session.
 ///
-/// Reads `frame.text` (digits, `.`, `-`) and `Action::NumericBackspace` /
-/// `Action::NumericNextAxis` to maintain per-axis string buffers. The first digit
+/// Reads `frame.text` (digits, `.`, `-`) and [`NUMERIC_BACKSPACE`] /
+/// [`NUMERIC_NEXT_AXIS`] to maintain per-axis string buffers. The first digit
 /// typed automatically initialises the numeric state.
 pub(crate) fn update_numeric_state(session: &mut ManipulationSession, frame: &ActionFrame) {
     // Bootstrap: create numeric state on the first typed digit, sign, or point.
@@ -248,7 +249,7 @@ pub(crate) fn update_numeric_state(session: &mut ManipulationSession, frame: &Ac
 
     // Backspace: pop the last character. Erasing the last one anywhere hands the
     // drag back to the pointer.
-    if frame.is_active(Action::NumericBackspace) {
+    if frame.is_active(NUMERIC_BACKSPACE) {
         numeric.axis_inputs[axis_idx].pop();
         if numeric.axis_inputs.iter().all(String::is_empty) {
             session.numeric = None;
@@ -257,7 +258,7 @@ pub(crate) fn update_numeric_state(session: &mut ManipulationSession, frame: &Ac
     }
 
     // Tab: advance to the next active axis.
-    if frame.is_active(Action::NumericNextAxis) {
+    if frame.is_active(NUMERIC_NEXT_AXIS) {
         let len = numeric.active_axes.len();
         if len > 1 {
             numeric.current_axis_idx = (numeric.current_axis_idx + 1) % len;

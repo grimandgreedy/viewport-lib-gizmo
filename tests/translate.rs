@@ -5,6 +5,7 @@ mod common;
 
 use common::*;
 use glam::{Vec2, Vec3};
+use viewport_lib_gizmo::actions;
 use viewport_lib_gizmo::{GizmoAxis, GizmoDriver, ManipResult, SnapConfig};
 use viewport_lib_types::input::Action;
 
@@ -49,9 +50,9 @@ fn a_y_constrained_move_follows_the_cursor_along_a_receding_axis() {
     // handles' pick order does not come into it.
     let mut rig = Rig::new(low(), Vec3::ZERO);
     rig.hover(rig.centre_px());
-    rig.keys(&[Action::BeginMove]);
+    rig.keys(&[actions::BEGIN_MOVE]);
     assert_eq!(
-        rig.keys(&[Action::ConstrainY]),
+        rig.keys(&[actions::CONSTRAIN_Y]),
         ManipResult::ConstraintChanged
     );
     let target = Vec3::new(0.0, 6.0, 0.0);

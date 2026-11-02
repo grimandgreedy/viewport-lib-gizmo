@@ -28,9 +28,13 @@
 //! [`PivotMode`]), hit-test the handles ([`Gizmo`]), turn a cursor into a world
 //! ray ([`cursor_ray`]), and snap a value ([`snap_value`] and friends).
 
+pub mod actions;
 pub mod controller;
 pub mod maths;
 pub mod overlay;
+
+// The input actions and their default bindings.
+pub use actions::manipulation_bindings;
 
 // Layer 1: the build-your-own-gizmo maths surface.
 pub use maths::gizmo::{

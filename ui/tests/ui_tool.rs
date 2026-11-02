@@ -5,10 +5,11 @@ use std::sync::Arc;
 
 use glam::{Vec2, Vec3};
 use viewport_lib_gizmo::GizmoMode;
+use viewport_lib_gizmo::actions;
 use viewport_lib_gizmo::compute_gizmo_scale;
 use viewport_lib_gizmo_ui::{GIZMO_KIND, GizmoFrame, GizmoResult, GizmoTool};
 use viewport_lib_types::camera::Camera;
-use viewport_lib_types::input::{Action, ActionFrame, ResolvedActionState};
+use viewport_lib_types::input::{ActionFrame, ResolvedActionState};
 use viewport_lib_ui::{ApproxMeasure, Frame, HostSources};
 use viewport_lib_ui_document::{Alignment, Layout, Screen, Widget, WidgetKind};
 use viewport_lib_ui_extend::custom::WidgetRegistry;
@@ -261,7 +262,7 @@ fn a_typed_number_reaches_the_host_through_the_delta() {
     let mut begin = ActionFrame::default();
     begin
         .actions
-        .insert(Action::BeginMove, ResolvedActionState::Pressed);
+        .insert(actions::BEGIN_MOVE, ResolvedActionState::Pressed);
     h.set_context(framed(camera(), begin));
     h.feed(Input::at(centre));
     assert!(tool.is_active(), "G starts a session");

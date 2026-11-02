@@ -21,6 +21,9 @@ use vpl::{
     primitives, viewport_default_bindings,
 };
 
+use viewport_lib_gizmo::actions::CYCLE_GIZMO_MODE;
+use viewport_lib_gizmo::manipulation_bindings;
+
 use viewport_lib_gizmo::{
     AxisColour, FrameInput, GizmoAxis, GizmoDriver, GizmoMode, GizmoStyle, ManipResult,
     TransformDelta, ValueMode, build_gizmo_overlays, build_numeric_label,
@@ -30,20 +33,18 @@ use viewport_lib_gizmo::{
 /// `Custom` action: the value means nothing to the library.
 const TOGGLE_VALUE_MODE: Action = Action::Custom(1);
 
-/// The default bindings, with Q also cycling the gizmo mode (Tab already does)
-/// and backtick toggling the value mode. Both are bound by the character they
-/// type, so they are the keys labelled Q and ` on any layout, and they only fire
-/// while the viewport has the keyboard.
+/// The default bindings plus the gizmo's own, with Q also cycling the gizmo
+/// mode (Tab already does) and backtick toggling the value mode. Both are bound
+/// by the character they type, so they are the keys labelled Q and ` on any
+/// layout, and they only fire while the viewport has the keyboard.
 fn gizmo_bindings() -> Vec<ViewportBinding> {
     let char_press = |ch| ViewportGesture::CharPress {
         ch,
         modifiers: ModifiersMatch::Exact(vpl::input::Modifiers::NONE),
     };
     let mut bindings = viewport_default_bindings();
-    bindings.push(ViewportBinding::new(
-        Action::CycleGizmoMode,
-        char_press('q'),
-    ));
+    bindings.extend(manipulation_bindings());
+    bindings.push(ViewportBinding::new(CYCLE_GIZMO_MODE, char_press('q')));
     bindings.push(ViewportBinding::new(TOGGLE_VALUE_MODE, char_press('`')));
     bindings
 }
@@ -273,7 +274,7 @@ impl eframe::App for App {
                 // Tab or Q cycles the gizmo mode, backtick toggles relative /
                 // objective values. cycle_mode is ignored during a session, where
                 // Tab advances the numeric axis instead.
-                if af.is_active(Action::CycleGizmoMode) {
+                if af.is_active(CYCLE_GIZMO_MODE) {
                     self.driver.cycle_mode();
                 }
                 if af.is_active(TOGGLE_VALUE_MODE) {

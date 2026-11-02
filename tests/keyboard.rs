@@ -5,6 +5,7 @@ mod common;
 
 use common::*;
 use glam::{Vec2, Vec3};
+use viewport_lib_gizmo::actions;
 use viewport_lib_gizmo::{GizmoAxis, GizmoMode, ManipResult, ManipulationKind, ValueMode};
 use viewport_lib_types::input::{Action, ActionFrame};
 
@@ -12,7 +13,7 @@ use viewport_lib_types::input::{Action, ActionFrame};
 fn moving() -> Rig {
     let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
     rig.hover(rig.centre_px() + Vec2::new(250.0, 120.0));
-    assert_eq!(rig.keys(&[Action::BeginMove]), ManipResult::None);
+    assert_eq!(rig.keys(&[actions::BEGIN_MOVE]), ManipResult::None);
     assert!(rig.driver.is_active());
     rig
 }
@@ -30,7 +31,7 @@ fn g_moves_in_the_camera_plane_with_the_cursor() {
 fn g_needs_a_selection() {
     let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
     rig.centre = None;
-    assert_eq!(rig.keys(&[Action::BeginMove]), ManipResult::None);
+    assert_eq!(rig.keys(&[actions::BEGIN_MOVE]), ManipResult::None);
     assert!(!rig.driver.is_active());
 }
 
@@ -67,7 +68,7 @@ fn changing_the_constraint_restores_and_restarts_from_the_cursor() {
     let from = rig.cursor.unwrap();
     update(rig.hover(from + Vec2::new(90.0, 0.0)));
     assert_eq!(
-        rig.keys(&[Action::ConstrainX]),
+        rig.keys(&[actions::CONSTRAIN_X]),
         ManipResult::ConstraintChanged
     );
     // The new constraint starts from where the cursor is now.
@@ -83,17 +84,17 @@ fn changing_the_constraint_restores_and_restarts_from_the_cursor() {
 fn pressing_the_same_constraint_again_is_not_a_change() {
     let mut rig = moving();
     assert_eq!(
-        rig.keys(&[Action::ConstrainX]),
+        rig.keys(&[actions::CONSTRAIN_X]),
         ManipResult::ConstraintChanged
     );
-    let r = rig.keys(&[Action::ConstrainX]);
+    let r = rig.keys(&[actions::CONSTRAIN_X]);
     assert!(matches!(r, ManipResult::Update(_)), "got {r:?}");
 }
 
 #[test]
 fn shift_z_moves_only_in_the_xy_plane() {
     let mut rig = moving();
-    rig.keys(&[Action::ExcludeZ]);
+    rig.keys(&[actions::EXCLUDE_Z]);
     let d = update(rig.hover(rig.cursor.unwrap() + Vec2::new(70.0, -90.0)));
     assert_eq!(d.translation.z, 0.0);
     assert!(d.translation.truncate().length() > 0.1);
@@ -102,7 +103,7 @@ fn shift_z_moves_only_in_the_xy_plane() {
 #[test]
 fn typed_values_override_their_axis_and_freeze_the_drag() {
     let mut rig = moving();
-    rig.keys(&[Action::ConstrainX]);
+    rig.keys(&[actions::CONSTRAIN_X]);
     let d = update(rig.type_chars("2.5"));
     assert_eq!(d.position_override, [Some(2.5), None, None]);
     // Moving the cursor while typing does not move the object.
@@ -114,7 +115,7 @@ fn typed_values_override_their_axis_and_freeze_the_drag() {
 #[test]
 fn typed_input_accepts_one_leading_minus_and_one_decimal_point() {
     let mut rig = moving();
-    rig.keys(&[Action::ConstrainZ]);
+    rig.keys(&[actions::CONSTRAIN_Z]);
     rig.type_chars("-1.2.5");
     let d = update(rig.type_chars("-"));
     assert_eq!(d.position_override, [None, None, Some(-1.25)]);
@@ -123,20 +124,20 @@ fn typed_input_accepts_one_leading_minus_and_one_decimal_point() {
 #[test]
 fn backspace_erases_the_last_character() {
     let mut rig = moving();
-    rig.keys(&[Action::ConstrainY]);
+    rig.keys(&[actions::CONSTRAIN_Y]);
     rig.type_chars("42");
-    let d = update(rig.keys(&[Action::NumericBackspace]));
+    let d = update(rig.keys(&[actions::NUMERIC_BACKSPACE]));
     assert_eq!(d.position_override, [None, Some(4.0), None]);
 }
 
 #[test]
 fn tab_walks_the_free_axes_of_a_plane_and_wraps() {
     let mut rig = moving();
-    rig.keys(&[Action::ExcludeZ]);
+    rig.keys(&[actions::EXCLUDE_Z]);
     rig.type_chars("1");
-    rig.keys(&[Action::NumericNextAxis]);
+    rig.keys(&[actions::NUMERIC_NEXT_AXIS]);
     rig.type_chars("2");
-    rig.keys(&[Action::NumericNextAxis]);
+    rig.keys(&[actions::NUMERIC_NEXT_AXIS]);
     let d = update(rig.type_chars("3"));
     assert_eq!(d.position_override, [Some(13.0), Some(2.0), None]);
 }
@@ -144,9 +145,9 @@ fn tab_walks_the_free_axes_of_a_plane_and_wraps() {
 #[test]
 fn changing_the_constraint_clears_typed_values() {
     let mut rig = moving();
-    rig.keys(&[Action::ConstrainX]);
+    rig.keys(&[actions::CONSTRAIN_X]);
     rig.type_chars("7");
-    rig.keys(&[Action::ConstrainY]);
+    rig.keys(&[actions::CONSTRAIN_Y]);
     let d = update(rig.idle());
     assert_eq!(d.position_override, [None, None, None]);
     assert_eq!(rig.driver.numeric_display(), None);
@@ -157,7 +158,7 @@ fn a_typed_character_that_is_not_a_number_does_not_freeze_the_drag() {
     // `text` carries every character typed while the viewport owns the keyboard.
     // The X that picks the axis must not lock the cursor out.
     let mut rig = moving();
-    let mut frame = pressed(&[Action::ConstrainX]);
+    let mut frame = pressed(&[actions::CONSTRAIN_X]);
     frame.text.push('x');
     rig.frame_with(&frame, rig.cursor, Vec2::ZERO, false, false);
     let d = update(rig.hover(rig.cursor.unwrap() + Vec2::new(80.0, 0.0)));
@@ -169,14 +170,14 @@ fn a_typed_character_that_is_not_a_number_does_not_freeze_the_drag() {
 fn rotate_and_scale_report_typed_values_on_their_own_channels() {
     let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
     rig.hover(rig.centre_px() + Vec2::new(200.0, 0.0));
-    rig.keys(&[Action::BeginRotate]);
-    rig.keys(&[Action::ConstrainZ]);
+    rig.keys(&[actions::BEGIN_ROTATE]);
+    rig.keys(&[actions::CONSTRAIN_Z]);
     let d = update(rig.type_chars("90"));
     assert_eq!(d.rotation_override, [None, None, Some(90.0)]);
     assert_eq!(d.position_override, [None; 3]);
     rig.keys(&[Action::Cancel]);
 
-    rig.keys(&[Action::BeginScale]);
+    rig.keys(&[actions::BEGIN_SCALE]);
     let d = update(rig.type_chars("2"));
     assert_eq!(d.scale_override, [Some(2.0), None, None]);
 }
@@ -186,7 +187,7 @@ fn the_mode_follows_the_session_and_cannot_be_changed_mid_session() {
     let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
     assert_eq!(rig.driver.mode(), GizmoMode::Translate);
     rig.hover(rig.centre_px() + Vec2::new(200.0, 0.0));
-    rig.keys(&[Action::BeginRotate]);
+    rig.keys(&[actions::BEGIN_ROTATE]);
     assert_eq!(rig.driver.mode(), GizmoMode::Rotate);
     rig.driver.set_mode(GizmoMode::Scale);
     rig.driver.cycle_mode();
@@ -197,7 +198,7 @@ fn the_mode_follows_the_session_and_cannot_be_changed_mid_session() {
 #[test]
 fn a_second_begin_key_mid_session_is_ignored() {
     let mut rig = moving();
-    let r = rig.keys(&[Action::BeginScale]);
+    let r = rig.keys(&[actions::BEGIN_SCALE]);
     assert!(matches!(r, ManipResult::Update(_)));
     assert_eq!(rig.driver.state().unwrap().kind, ManipulationKind::Move);
 }
@@ -206,7 +207,7 @@ fn a_second_begin_key_mid_session_is_ignored() {
 fn the_readout_names_the_mode_constraint_value_mode_and_typed_values() {
     let mut rig = moving();
     assert_eq!(rig.driver.readout().as_deref(), Some("Translate [rel]"));
-    rig.keys(&[Action::ExcludeZ]);
+    rig.keys(&[actions::EXCLUDE_Z]);
     assert_eq!(rig.driver.readout().as_deref(), Some("Translate XY [rel]"));
     rig.driver.set_value_mode(ValueMode::Objective);
     rig.type_chars("3");
@@ -233,10 +234,10 @@ fn the_value_mode_toggles_and_survives_sessions() {
 fn every_view_highlights_the_constraint_while_a_session_runs() {
     let mut rig = moving();
     assert_eq!(rig.driver.highlight(false), GizmoAxis::None);
-    rig.keys(&[Action::ConstrainY]);
+    rig.keys(&[actions::CONSTRAIN_Y]);
     assert_eq!(rig.driver.highlight(true), GizmoAxis::Y);
     assert_eq!(rig.driver.highlight(false), GizmoAxis::Y);
-    rig.keys(&[Action::ExcludeX]);
+    rig.keys(&[actions::EXCLUDE_X]);
     assert_eq!(rig.driver.highlight(false), GizmoAxis::YZ);
 }
 
@@ -265,9 +266,9 @@ fn an_empty_frame_mid_session_changes_nothing() {
 #[test]
 fn erasing_every_typed_character_hands_the_drag_back_to_the_cursor() {
     let mut rig = moving();
-    rig.keys(&[Action::ConstrainX]);
+    rig.keys(&[actions::CONSTRAIN_X]);
     rig.type_chars("5");
-    rig.keys(&[Action::NumericBackspace]);
+    rig.keys(&[actions::NUMERIC_BACKSPACE]);
     assert_eq!(rig.driver.numeric_display(), None);
     let d = update(rig.hover(rig.cursor.unwrap() + Vec2::new(80.0, 0.0)));
     assert_eq!(d.position_override, [None; 3]);
@@ -282,7 +283,7 @@ fn a_keyboard_session_gives_the_mode_back_when_it_ends() {
     let mut rig = Rig::new(three_quarter(), Vec3::ZERO);
     rig.hover(rig.centre_px() + Vec2::new(200.0, 0.0));
     for end in [Action::Confirm, Action::Cancel] {
-        rig.keys(&[Action::BeginScale]);
+        rig.keys(&[actions::BEGIN_SCALE]);
         assert_eq!(rig.driver.mode(), GizmoMode::Scale);
         rig.keys(&[end]);
         assert_eq!(rig.driver.mode(), GizmoMode::Translate, "after {end:?}");
@@ -307,7 +308,7 @@ fn a_free_r_turns_with_the_cursor_sweep_about_the_view_axis() {
         c + Vec2::new(a.cos(), -a.sin()) * 150.0
     };
     rig.hover(at(0.0));
-    rig.keys(&[Action::BeginRotate]);
+    rig.keys(&[actions::BEGIN_ROTATE]);
     let mut last = ManipResult::None;
     for deg in (5..=60).step_by(5) {
         last = rig.hover(at(deg as f32));

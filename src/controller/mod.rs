@@ -32,6 +32,7 @@ pub use driver::GizmoDriver;
 pub use types::*;
 pub use views::ActiveView;
 
+use crate::actions;
 use crate::maths::gizmo::{Gizmo, GizmoAxis, GizmoMode, GizmoSpace};
 use crate::maths::snap::{SnapConfig, snap_value, snap_vec3};
 use crate::maths::solvers;
@@ -122,12 +123,12 @@ impl ManipulationController {
             let exclude_before = session.exclude_axis;
             update_constraint(
                 session,
-                frame.is_active(Action::ConstrainX),
-                frame.is_active(Action::ConstrainY),
-                frame.is_active(Action::ConstrainZ),
-                frame.is_active(Action::ExcludeX),
-                frame.is_active(Action::ExcludeY),
-                frame.is_active(Action::ExcludeZ),
+                frame.is_active(actions::CONSTRAIN_X),
+                frame.is_active(actions::CONSTRAIN_Y),
+                frame.is_active(actions::CONSTRAIN_Z),
+                frame.is_active(actions::EXCLUDE_X),
+                frame.is_active(actions::EXCLUDE_Y),
+                frame.is_active(actions::EXCLUDE_Z),
             );
             update_numeric_state(session, frame);
 
@@ -423,11 +424,11 @@ impl ManipulationController {
 
         // 7. G/R/S keyboard shortcuts.
         if let Some(centre) = ctx.selection_centre {
-            let kind = if frame.is_active(Action::BeginMove) {
+            let kind = if frame.is_active(actions::BEGIN_MOVE) {
                 Some(ManipulationKind::Move)
-            } else if frame.is_active(Action::BeginRotate) {
+            } else if frame.is_active(actions::BEGIN_ROTATE) {
                 Some(ManipulationKind::Rotate)
-            } else if frame.is_active(Action::BeginScale) {
+            } else if frame.is_active(actions::BEGIN_SCALE) {
                 Some(ManipulationKind::Scale)
             } else {
                 None
@@ -678,7 +679,7 @@ mod tests {
         // Backspace once.
         let mut frame2 = ActionFrame::default();
         frame2.actions.insert(
-            viewport_lib_types::input::Action::NumericBackspace,
+            crate::actions::NUMERIC_BACKSPACE,
             viewport_lib_types::input::ResolvedActionState::Pressed,
         );
         run(&mut ctrl, &frame2, idle_ctx());
@@ -805,7 +806,7 @@ mod tests {
         // No selection_centre -> G/R/S should not start a session.
         let mut frame = ActionFrame::default();
         frame.actions.insert(
-            viewport_lib_types::input::Action::BeginMove,
+            crate::actions::BEGIN_MOVE,
             viewport_lib_types::input::ResolvedActionState::Pressed,
         );
         let mut ctx = idle_ctx();
@@ -820,7 +821,7 @@ mod tests {
         let mut ctrl = ManipulationController::new();
         let mut frame = ActionFrame::default();
         frame.actions.insert(
-            viewport_lib_types::input::Action::BeginMove,
+            crate::actions::BEGIN_MOVE,
             viewport_lib_types::input::ResolvedActionState::Pressed,
         );
         let mut ctx = idle_ctx();
