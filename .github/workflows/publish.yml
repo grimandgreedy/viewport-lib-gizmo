@@ -1,0 +1,79 @@
+name: Publish Crate
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    # The manifest has path dependencies on a sibling viewport-lib checkout
+    # (../../viewport-lib), so both repos are checked out in that layout.
+    defaults:
+      run:
+        working-directory: extensions/viewport-lib-gizmo
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: extensions/viewport-lib-gizmo
+
+      - name: Checkout viewport-lib
+        uses: actions/checkout@v4
+        with:
+          repository: grimandgreedy/viewport-lib
+          path: viewport-lib
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          test "$TAG_VERSION" = "$CARGO_VERSION"
+
+      # The ui member depends on viewport-lib-ui, which is private and not
+      # checked out here. It is never published, so drop it from the workspace.
+      - name: Drop the ui crate from the workspace
+        run: sed -i 's/^members = \["ui"\]/members = []/' Cargo.toml
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: extensions/viewport-lib-gizmo
+
+      # --allow-dirty: the workspace edit above is the only change.
+      - name: Dry run publish
+        run: cargo publish -p viewport-lib-gizmo --dry-run --allow-dirty
+
+      - name: Publish to crates.io
+        run: cargo publish -p viewport-lib-gizmo --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # `cargo publish` unpacks the crate into target/package/ to verify it,
+      # which the cache action's post-job clean does not expect.
+      - name: Remove publish scratch directory
+        if: always()
+        run: rm -rf target/package
+
+      - name: Get changelog entry
+        id: changelog
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          if [ -f CHANGELOG.md ]; then
+            awk "/^## \[${TAG_VERSION}\]/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md >> $GITHUB_OUTPUT
+          fi
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.body }}
