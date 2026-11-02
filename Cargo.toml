@@ -12,7 +12,7 @@ autoexamples = false
 
 [dependencies]
 glam = { version = "=0.30.10", features = ["bytemuck"] }
-viewport-lib-types = { path = "../../viewport-lib/crates/viewport-lib-types" }
+viewport-lib-types = { path = "../../viewport-lib/crates/viewport-lib-types", version = "0.2" }
 
 [dev-dependencies]
 # The renderer is needed only by examples that draw the overlay items, not by
