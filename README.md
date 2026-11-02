@@ -1,6 +1,6 @@
 # viewport-lib-gizmo
 
-A move / rotate / scale transform gizmo for [viewport-lib](https://github.com/grimandgreedy/viewport-lib) scenes. It hit-tests the handles, turns drags and G / R / S keyboard sessions into transforms, and builds overlay items for your renderer, with no wgpu dependency.
+A move / rotate / scale transform gizmo for [viewport-lib](https://github.com/grimandgreedy/viewport-lib) scenes. It hit-tests the handles, turns drags and G / R / S keyboard sessions into transforms, and builds overlay items which are submitted to the vpl frame.
 
 <p align="center">
   <img src="https://github.com/grimandgreedy/viewport-lib-gizmo/blob/master/assets/gizmo2.png?raw=true" alt="viewport-lib-gizmo" width="50%" />
