@@ -8,12 +8,11 @@ A move / rotate / scale transform gizmo for [viewport-lib](https://github.com/gr
 
 ## Examples
 
-- **gizmo_basic**: one cube with the default style.
-- **gizmo_styling**: a sidebar that edits the `GizmoStyle` live.
-- **gizmo_multi_viewport**: one gizmo shared across four views, three of them orthographic.
+See the examples for demo and usage practices. The styling example shows both visually and in code how to take advantage of the various customisable elements of vpl-gizmo.
+
 
 ```sh
-cargo run --example gizmo_basic
-cargo run --example gizmo_styling
-cargo run --example gizmo_multi_viewport
+cargo run --release --example gizmo_basic
+cargo run --release --example gizmo_styling
+cargo run --release --example gizmo_multi_viewport
 ```
