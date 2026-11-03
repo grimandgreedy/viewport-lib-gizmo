@@ -16,3 +16,9 @@ cargo run --release --example gizmo_basic
 cargo run --release --example gizmo_styling
 cargo run --release --example gizmo_multi_viewport
 ```
+
+## Versions
+
+| viewport-lib-gizmo | viewport-lib |
+| --- | --- |
+| 0.1 | 0.23 |
