@@ -6,50 +6,29 @@ rust-version = "1.85"
 description = "Standalone transform gizmo for viewport-lib scenes: renderer-free hit-testing, drag projection, snapping, and overlay building."
 license = "GPL-3.0-only"
 repository = "https://github.com/grimandgreedy/viewport-lib-gizmo"
-# The README images are linked by URL, so they stay out of the package.
 exclude = ["assets/"]
 autoexamples = false
 
 [dependencies]
 glam = { version = "=0.30.10", features = ["bytemuck"] }
-viewport-lib-types = { path = "../../viewport-lib/crates/viewport-lib-types", version = "0.2" }
+viewport-lib-types = "0.3"
 
+# Only the examples draw anything.
 [dev-dependencies]
-# The renderer is needed only by examples that draw the overlay items, not by
-# the library itself. The `app` feature adds the `ViewportApp` fullscreen runner
-# used by the rendering examples.
-viewport-lib = { path = "../../viewport-lib/crates/viewport-lib", features = [
-    "app",
-    "egui-adapter",
-] }
-# eframe drives the sidebar example. Pinned to the version viewport-lib's own
-# eframe examples use (the wgpu 27 leg).
-eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts"] }
+viewport-lib = { version = "0.23", features = ["app", "egui-adapter"] }
+eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 
-# The viewport-lib-ui frontend is a separate crate, viewport-lib-gizmo-ui, so this
-# one builds and publishes without viewport-lib-ui.
 [workspace]
 members = ["ui"]
 
-# viewport-lib-ui depends on viewport-lib by version; point it at the same local
-# crate the gizmo uses so the overlay item types are one and the same. Patches only
-# apply from the workspace root, so this also covers the ui crate.
-[patch.crates-io]
-viewport-lib = { path = "../../viewport-lib/crates/viewport-lib" }
-viewport-lib-types = { path = "../../viewport-lib/crates/viewport-lib-types" }
-
-# A gizmo drawn over one object, driven end to end with the ViewportApp runner.
 [[example]]
 name = "gizmo_basic"
 path = "examples/gizmo_basic.rs"
 
-# One gizmo across a four-view layout (perspective plus orthographic top, front
-# and right), each view rendered through viewport-lib's multi-viewport API.
 [[example]]
 name = "gizmo_multi_viewport"
 path = "examples/gizmo_multi_viewport.rs"
 
-# An eframe app whose sidebar restyles the gizmo live.
 [[example]]
 name = "gizmo_styling"
 path = "examples/gizmo_styling.rs"

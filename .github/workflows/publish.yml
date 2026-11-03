@@ -11,23 +11,9 @@ jobs:
     permissions:
       contents: write
 
-    # The manifest has path dependencies on a sibling viewport-lib checkout
-    # (../../viewport-lib), so both repos are checked out in that layout.
-    defaults:
-      run:
-        working-directory: extensions/viewport-lib-gizmo
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          path: extensions/viewport-lib-gizmo
-
-      - name: Checkout viewport-lib
-        uses: actions/checkout@v4
-        with:
-          repository: grimandgreedy/viewport-lib
-          path: viewport-lib
 
       - name: Check tag matches Cargo.toml version
         run: |
@@ -35,8 +21,8 @@ jobs:
           CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           test "$TAG_VERSION" = "$CARGO_VERSION"
 
-      # The ui member depends on viewport-lib-ui, which is private and not
-      # checked out here. It is never published, so drop it from the workspace.
+      # The ui member depends on viewport-lib-ui, which is not on crates.io. It
+      # is never published, so drop it from the workspace.
       - name: Drop the ui crate from the workspace
         run: sed -i 's/^members = \["ui"\]/members = []/' Cargo.toml
 
@@ -45,8 +31,6 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: extensions/viewport-lib-gizmo
 
       # --allow-dirty: the workspace edit above is the only change.
       - name: Dry run publish
