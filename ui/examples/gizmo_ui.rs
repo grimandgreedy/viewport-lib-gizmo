@@ -112,14 +112,7 @@ fn dark_theme() -> Theme {
     set(roles::WARNING, [0.95, 0.72, 0.25, 1.0]);
     set(roles::ERROR, [0.92, 0.35, 0.38, 1.0]);
     set(roles::INFO, [0.45, 0.65, 0.95, 1.0]);
-    Theme {
-        name: "gizmo dark".to_string(),
-        mode: ThemeMode::Dark,
-        roles: roles_map,
-        metrics: BTreeMap::new(),
-        base: None,
-        density: 1.0,
-    }
+    Theme::new("gizmo dark", ThemeMode::Dark).with_roles(roles_map)
 }
 
 /// Build the screen: a full-viewport gizmo pane under a small readout panel.

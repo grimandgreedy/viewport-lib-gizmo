@@ -74,10 +74,7 @@ pub fn mode_badge(id: WidgetId, mode: GizmoMode) -> Widget {
         id,
         WidgetKind::Badge(Badge::new(mode_tag(mode), Paint::role(roles::ACCENT))),
     )
-    .with_style(Style {
-        font_size: Metric::px(READOUT_BADGE_FONT),
-        ..Style::default()
-    })
+    .with_style(Style::default().with_font_size(Metric::px(READOUT_BADGE_FONT)))
 }
 
 /// Set the mode badge's letter, finding it under `root` by id. A no-op if the id is
@@ -251,23 +248,22 @@ pub fn readout_panel(ids: ReadoutIds, mode: GizmoMode, value_mode: ValueMode) ->
             align: Align::Centre,
         })
         .with_children([mode_badge(ids.badge, mode), readout_field(ids.field)]);
-    let values = value_mode_segmented(ids.mode, value_mode).with_style(Style {
-        font_size: Metric::px(READOUT_SEGMENTED_FONT),
-        foreground: Paint::role(roles::TEXT),
-        ..Style::default()
-    });
+    let values = value_mode_segmented(ids.mode, value_mode).with_style(
+        Style::default()
+            .with_font_size(Metric::px(READOUT_SEGMENTED_FONT))
+            .with_foreground(Paint::role(roles::TEXT)),
+    );
 
     Widget::new(ids.panel, WidgetKind::Panel)
-        .with_style(Style {
-            background: Paint::role_alpha(roles::SURFACE, 0.95),
-            foreground: Paint::role(roles::TEXT),
-            padding: EdgeInsets::all(READOUT_PADDING),
-            ..Style::default()
-        })
-        .with_decoration(Decoration {
-            corner_radius: Metric::px(READOUT_CORNER_RADIUS),
-            ..Decoration::default()
-        })
+        .with_style(
+            Style::default()
+                .with_background(Paint::role_alpha(roles::SURFACE, 0.95))
+                .with_foreground(Paint::role(roles::TEXT))
+                .with_padding(EdgeInsets::all(READOUT_PADDING)),
+        )
+        .with_decoration(
+            Decoration::default().with_corner_radius(Metric::px(READOUT_CORNER_RADIUS)),
+        )
         .with_layout(Layout::Stack {
             axis: Axis::Vertical,
             spacing: READOUT_SPACING,
