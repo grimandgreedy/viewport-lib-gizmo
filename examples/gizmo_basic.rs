@@ -110,7 +110,9 @@ fn main() {
                 .with_window_size(1280, 720),
             {
                 let state = state.clone();
-                move |session, device| {
+                move |setup| {
+                    let device = &setup.device().clone();
+                    let session: &mut viewport_lib::ViewportInstance = setup;
                     let cube = session
                         .resources_mut()
                         .upload_mesh_data(device, &primitives::cube(1.0))

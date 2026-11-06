@@ -191,7 +191,9 @@ fn main() {
                 .with_title("viewport-lib-gizmo : ui, four views")
                 .with_window_size(1280, 800),
             // The window's own scene stays empty; the shared scene lives in `State`.
-            move |instance, device| {
+            move |setup| {
+                let device = &setup.device().clone();
+                let instance: &mut viewport_lib::ViewportInstance = setup;
                 let cube = instance
                     .resources_mut()
                     .upload_mesh_data(device, &primitives::cube(1.0))
