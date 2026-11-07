@@ -275,6 +275,7 @@ pub fn readout_panel(ids: ReadoutIds, mode: GizmoMode, value_mode: ValueMode) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use viewport_lib_ui_document::ChoicePresentation;
 
     #[test]
     fn readout_values_pick_the_vector_for_the_mode() {
@@ -472,7 +473,11 @@ mod tests {
         assert_eq!(value_mode_from_index(1), ValueMode::Objective);
 
         match value_mode_segmented(9, ValueMode::Objective).kind {
-            WidgetKind::Segmented { options, selected } => {
+            WidgetKind::Choose {
+                options,
+                selected,
+                presentation: ChoicePresentation::Segmented,
+            } => {
                 assert_eq!(
                     options,
                     vec!["Relative".to_string(), "Objective".to_string()]
