@@ -408,7 +408,7 @@ fn main() {
                         readout_values_in(tool.mode(), last_delta, tool.value_mode(), &pose),
                     );
                     if let Some(w) = screen.root.find_mut(MODE_SEG) {
-                        if let WidgetKind::Segmented { selected, .. } = &mut w.kind {
+                        if let WidgetKind::Choose { selected, .. } = &mut w.kind {
                             *selected = value_mode_index(tool.value_mode());
                         }
                     }
