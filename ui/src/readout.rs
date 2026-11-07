@@ -18,7 +18,7 @@
 
 use glam::{EulerRot, Mat4, Quat};
 use viewport_lib_ui_document::{
-    Align, Axis, Badge, Decoration, EdgeInsets, Layout, Metric, Paint, Style, Widget, WidgetId,
+    Align, Axis, Badge, Decoration, EdgeInsets, Justify, Layout, Metric, Paint, Style, Widget, WidgetId,
     WidgetKind, roles,
 };
 
@@ -246,6 +246,7 @@ pub fn readout_panel(ids: ReadoutIds, mode: GizmoMode, value_mode: ValueMode) ->
             axis: Axis::Horizontal,
             spacing: READOUT_SPACING,
             align: Align::Centre,
+            justify: Justify::Start,
         })
         .with_children([mode_badge(ids.badge, mode), readout_field(ids.field)]);
     let values = value_mode_segmented(ids.mode, value_mode).with_style(
@@ -268,6 +269,7 @@ pub fn readout_panel(ids: ReadoutIds, mode: GizmoMode, value_mode: ValueMode) ->
             axis: Axis::Vertical,
             spacing: READOUT_SPACING,
             align: Align::Centre,
+            justify: Justify::Start,
         })
         .with_children([row, values])
 }

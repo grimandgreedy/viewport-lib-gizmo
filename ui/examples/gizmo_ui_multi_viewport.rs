@@ -388,7 +388,7 @@ fn main() {
                                 .with_action_frame(action.clone()),
                         );
                         if let Some(w) = view.screen.root.find_mut(view.pane) {
-                            w.size = size.into();
+                            w.sizing.size = size.into();
                         }
                         let mut local = input.clone();
                         local.pointer.cursor[0] -= origin.x;

@@ -355,7 +355,7 @@ fn main() {
                     );
                     // Keep the pane covering the viewport as the window resizes.
                     if let Some(w) = screen.root.find_mut(GIZMO_PANE) {
-                        w.size = vp_px;
+                        w.sizing.size = vp_px;
                     }
 
                     let frame = Frame::new(vp_px, &measure, registry)
