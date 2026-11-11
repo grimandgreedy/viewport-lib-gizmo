@@ -344,11 +344,11 @@ fn build_arrow(
                 [shaft_draw.length(), shaft_thick],
             )
             .with_rotation(shaft_draw.y.atan2(shaft_draw.x))
-            .with_fill(OverlayFill::LinearGradient {
-                start_colour: scale_rgb(colour, style.shaft_grad_hi),
-                end_colour: scale_rgb(colour, style.shaft_grad_lo),
-                angle: 0.0,
-            })
+            .with_fill(OverlayFill::linear_gradient(
+                scale_rgb(colour, style.shaft_grad_hi),
+                scale_rgb(colour, style.shaft_grad_lo),
+                0.0,
+            ))
             .with_z_order(z),
         );
     }
@@ -379,10 +379,10 @@ fn build_arrow(
             // Local +X (minor) runs along the axis; local +Y (major) across it.
             centred(OverlayShape::Ellipse, shaft_tip_px, [minor, head_w])
                 .with_rotation(along)
-                .with_fill(OverlayFill::RadialGradient {
-                    centre_colour: scale_rgb(colour, style.cone_base_grad_hi),
-                    edge_colour: scale_rgb(colour, style.cone_base_grad_lo),
-                })
+                .with_fill(OverlayFill::radial_gradient(
+                    scale_rgb(colour, style.cone_base_grad_hi),
+                    scale_rgb(colour, style.cone_base_grad_lo),
+                ))
                 .with_z_order(z + 1),
         );
         if head_len > 1.0 {
@@ -396,11 +396,11 @@ fn build_arrow(
                     [head_w, head_len],
                 )
                 .with_rotation(head_vec.x.atan2(-head_vec.y))
-                .with_fill(OverlayFill::LinearGradient {
-                    start_colour: scale_rgb(colour, style.cone_side_grad_hi),
-                    end_colour: scale_rgb(colour, style.cone_side_grad_lo),
-                    angle: 0.0,
-                })
+                .with_fill(OverlayFill::linear_gradient(
+                    scale_rgb(colour, style.cone_side_grad_hi),
+                    scale_rgb(colour, style.cone_side_grad_lo),
+                    0.0,
+                ))
                 .with_z_order(z + 2),
             );
         }
@@ -619,7 +619,7 @@ mod tests {
             );
             // First shape is the X-axis shaft; its gradient start encodes the colour.
             match &shapes[0].style.fill {
-                OverlayFill::LinearGradient { start_colour, .. } => *start_colour,
+                OverlayFill::LinearGradient { stops, .. } => stops[0].colour,
                 _ => panic!("shaft should use a linear gradient"),
             }
         };
