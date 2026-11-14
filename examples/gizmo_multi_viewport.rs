@@ -256,10 +256,11 @@ fn main() {
                         view.blit = None;
                     }
                     if view.blit.is_none() {
-                        view.blit = Some(
-                            ctx.renderer_mut()
-                                .create_blit(&device, view.target.render_view()),
-                        );
+                        view.blit = Some(ctx.renderer_mut().create_blit(
+                            &device,
+                            view.target.render_view(),
+                            vpl::BlitFilter::Linear,
+                        ));
                     }
                 }
 
