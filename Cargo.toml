@@ -1,6 +1,6 @@
 [package]
 name = "viewport-lib-gizmo"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Standalone transform gizmo for viewport-lib scenes: renderer-free hit-testing, drag projection, snapping, and overlay building."
@@ -11,11 +11,11 @@ autoexamples = false
 
 [dependencies]
 glam = { version = "=0.30.10", features = ["bytemuck"] }
-viewport-lib-types = "0.3"
+viewport-lib-types = "0.4"
 
 # Only the examples draw anything.
 [dev-dependencies]
-viewport-lib = { version = "0.23", features = ["app", "egui-adapter"] }
+viewport-lib = { version = "0.24", features = ["app", "egui-adapter"] }
 eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 
 [workspace]

@@ -12,13 +12,13 @@ autoexamples = false
 [dependencies]
 viewport-lib-gizmo = { path = ".." }
 glam = { version = "=0.30.10", features = ["bytemuck"] }
-viewport-lib-types = "0.3"
+viewport-lib-types = "0.4"
 viewport-lib-ui-extend = "0.10"
 viewport-lib-ui-document = "0.10"
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-viewport-lib = { version = "0.23", features = ["app", "egui-adapter"] }
+viewport-lib = { version = "0.24", features = ["app", "egui-adapter"] }
 viewport-lib-ui = "0.10"
 viewport-lib-ui-test = "0.10"
 
